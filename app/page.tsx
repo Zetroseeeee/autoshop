@@ -1,7 +1,14 @@
-export default function Home() {
+import { BasketScreen } from "@/components/BasketScreen";
+import { ToastProvider } from "@/components/Toast";
+import { listItems } from "@/lib/items";
+
+export const dynamic = "force-dynamic";
+
+export default async function BasketPage() {
+  const items = await listItems();
   return (
-    <main className="mx-auto w-full max-w-[520px] px-4 py-6">
-      <h1 className="text-[26px] font-bold">Basket</h1>
-    </main>
+    <ToastProvider>
+      <BasketScreen initialItems={items} studioEnabled={Boolean(process.env.GEMINI_API_KEY && process.env.BLOB_READ_WRITE_TOKEN)} />
+    </ToastProvider>
   );
 }

@@ -51,19 +51,3 @@ export async function deleteItem(id: string): Promise<boolean> {
   const rows = await db.delete(items).where(eq(items.id, id)).returning({ id: items.id });
   return rows.length > 0;
 }
-
-export interface StoreGroup {
-  store: string;
-  items: Item[];
-}
-
-/** Group items by store, stores ordered by first appearance (newest item first). */
-export function groupByStore(list: Item[]): StoreGroup[] {
-  const map = new Map<string, Item[]>();
-  for (const it of list) {
-    const arr = map.get(it.store);
-    if (arr) arr.push(it);
-    else map.set(it.store, [it]);
-  }
-  return [...map.entries()].map(([store, its]) => ({ store, items: its }));
-}
