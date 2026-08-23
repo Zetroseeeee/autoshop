@@ -1,16 +1,17 @@
 import { applyEnrichment, enrichUrl } from "./enrich";
+import { liveTiers } from "./enrichTiers";
 import { getItem, updateItem } from "./items";
 import type { Item } from "./schema";
 
 /**
  * Enrich a stored item end-to-end. Safe to run in `after()`; never throws.
- * Tiers 2–4 and auto-studio are wired in here once they exist (stage 7/8).
+ * Auto-studio (AUTO_STUDIO=true) is wired in here in stage 8.
  */
 export async function enrichItem(itemId: string): Promise<Item | null> {
   const item = await getItem(itemId);
   if (!item) return null;
   try {
-    const result = await enrichUrl(item.url);
+    const result = await enrichUrl(item.url, liveTiers());
     console.log(`[enrich] ${item.store} → ${result.fetchState} via ${result.tiers.join(">")}`, result.sources);
     return await applyEnrichment(item, result);
   } catch (err) {

@@ -20,7 +20,7 @@ export const JS_SITES = [
 ];
 
 /** Bot-walled hosts where only a proxy scraping API has a realistic chance (Tier 3). */
-export const HARD_SITES = ["vinted.", "depop.com", "grailed.com", "ebay.", "zara.com", "stockx.com", "goat.com"];
+export const HARD_SITES = ["vinted.", "depop.com", "grailed.com", "ebay.", "zara.com", "hm.com", "stockx.com", "goat.com"];
 
 export function matchesSite(host: string, pattern: string): boolean {
   const h = host.toLowerCase();
