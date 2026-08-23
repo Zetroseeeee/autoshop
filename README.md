@@ -91,7 +91,11 @@ Result → `fetchState`: `ok` (name+price+image) / `partial` / `failed` ("Fetch 
 
 ## Studio packshots (`lib/studio.ts`)
 
-"Studio photo" on an item, "Generate all missing" on the basket, or automatically after fetch with `AUTO_STUDIO=true`. Checks the monthly cap (`studio_usage` vs `STUDIO_MONTHLY_CAP`, default 200) → downloads the source image (normalised to a ≤1280 px JPEG with sharp) → Gemini image model with the packshot prompt (style varies by category) → PNG to Vercel Blob → `studioImageUrl`. With `BACK_VIEW=true` a second, clearly labelled **AI guess** back view is generated. Thumbnails prefer the studio image; the editor has an Original / Studio toggle and Regenerate. Any failure keeps the original and shows a toast.
+"Studio photo" on an item, "Generate all missing" on the basket, or automatically after fetch with `AUTO_STUDIO=true`. Checks the monthly cap (`studio_usage` vs `STUDIO_MONTHLY_CAP`, default 200) → downloads the source image (normalised to a ≤1280 px JPEG with sharp) → Gemini image model with the packshot prompt → PNG to Vercel Blob → `studioImageUrl`.
+
+The prompt names the item (`ASOS DESIGN cotton twill overshirt … (a jacket or outer layer)`) and the composition rule for its category. Naming it matters: with only a category, an on-model source photo makes the model re-shoot the **whole outfit** — a verified failure where an overshirt came back as shirt + shorts + socks + shoes. It also explicitly excludes other garments worn alongside the item.
+
+One known limitation: small text on labels comes back as plausible-looking gibberish (an inherent property of the image models), and the backdrop lands around `#F4F4F4` rather than a literal `#FFFFFF`. A pixel-level background flattener was tried and rejected — it classified cream and white *products* as backdrop and destroyed them, which is a far worse failure than a slightly off-white sweep. With `BACK_VIEW=true` a second, clearly labelled **AI guess** back view is generated. Thumbnails prefer the studio image; the editor has an Original / Studio toggle and Regenerate. Any failure keeps the original and shows a toast.
 
 ## Daily price check (stretch)
 
