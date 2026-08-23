@@ -1,6 +1,5 @@
 "use client";
 
-import { useCallback } from "react";
 import type { Item } from "@/lib/schema";
 import { useToast } from "./Toast";
 
@@ -9,7 +8,7 @@ export function useStoreLinks(items: Pick<Item, "url">[]) {
   const toast = useToast();
   const urls = [...new Set(items.map((i) => i.url))];
 
-  const openAll = useCallback(() => {
+  function openAll() {
     if (!urls.length) return;
     let blocked = 0;
     for (const url of urls) {
@@ -18,9 +17,9 @@ export function useStoreLinks(items: Pick<Item, "url">[]) {
     }
     if (blocked === urls.length) toast("Pop-ups blocked — allow pop-ups for this site, or use Copy links", "error");
     else if (blocked > 0) toast(`${blocked} of ${urls.length} links were blocked — allow pop-ups to open them all`, "error");
-  }, [toast, urls]);
+  }
 
-  const copyLinks = useCallback(async () => {
+  async function copyLinks() {
     if (!urls.length) return;
     try {
       await navigator.clipboard.writeText(urls.join("\n"));
@@ -28,7 +27,7 @@ export function useStoreLinks(items: Pick<Item, "url">[]) {
     } catch {
       toast("Couldn't access the clipboard", "error");
     }
-  }, [toast, urls]);
+  }
 
   return { openAll, copyLinks, urls };
 }

@@ -16,7 +16,8 @@ async function request<T>(input: string, init?: RequestInit): Promise<T> {
     cache: "no-store",
   });
   if (res.status === 401) {
-    window.location.href = `/unlock?next=${encodeURIComponent(window.location.pathname)}`;
+    // session expired: hard-navigate to the passcode screen (absolute URL, full reload on purpose)
+    window.location.replace(new URL(`/unlock?next=${encodeURIComponent(window.location.pathname)}`, window.location.origin).href);
     throw new ApiError("Locked", 401);
   }
   const data = (await res.json().catch(() => ({}))) as { error?: string } & T;

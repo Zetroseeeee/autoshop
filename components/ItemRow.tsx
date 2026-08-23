@@ -58,6 +58,7 @@ export function ItemRow({
 
       {open ? (
         <ItemEditor
+          key={`${item.id}:${String(item.updatedAt)}:${item.studioImageUrl ?? ""}`}
           item={item}
           busy={busy}
           onSave={(patch) => actions.patch(item.id, patch)}

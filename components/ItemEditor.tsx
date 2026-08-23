@@ -39,25 +39,15 @@ export function ItemEditor({
   const [currency, setCurrency] = useState(item.currency ?? "GBP");
   const [image, setImage] = useState(item.sourceImageUrl ?? "");
   const [category, setCategory] = useState(item.category);
-  const [view, setView] = useState<View>(item.studioImageUrl ? "studio" : "original");
+  const [chosenView, setView] = useState<View>(item.studioImageUrl ? "studio" : "original");
+  const view: View =
+    chosenView === "studio" && !item.studioImageUrl ? "original" : chosenView === "back" && !item.studioBackUrl ? "original" : chosenView;
   const [saving, setSaving] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // keep fields in sync when a fetch/studio run updates the item underneath us
-  useEffect(() => {
-    setName(item.name);
-    setPrice(item.priceMinor != null ? (item.priceMinor / 100).toFixed(2) : "");
-    setCurrency(item.currency ?? "GBP");
-    setImage(item.sourceImageUrl ?? "");
-    setCategory(item.category);
-  }, [item.name, item.priceMinor, item.currency, item.sourceImageUrl, item.category]);
-
-  useEffect(() => {
-    if (item.studioImageUrl && view === "original" && !item.sourceImageUrl) setView("studio");
-    if (!item.studioImageUrl && view !== "original") setView("original");
-  }, [item.studioImageUrl, item.sourceImageUrl, view]);
-
+  // Field state is seeded from the item; the row remounts the editor (key = updatedAt)
+  // whenever a fetch or studio run changes the item underneath us.
   useEffect(() => {
     if (!confirmRemove) return;
     const t = setTimeout(() => setConfirmRemove(false), 3000);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { groupByStore } from "@/lib/basket";
 import type { Item } from "@/lib/schema";
@@ -17,18 +17,12 @@ import { SparkIcon, Spinner } from "./icons";
 type Busy = Record<string, { retry?: boolean; studio?: boolean }>;
 
 export function BasketScreen({ initialItems, studioEnabled }: { initialItems: Item[]; studioEnabled: boolean }) {
-  const { items, replace, refresh, loadError, add, patch, remove, retry, justFailed, clearJustFailed } = useItems(initialItems);
-  const toast = useToast();
   const [openId, setOpenId] = useState<string | null>(null);
   const [busy, setBusy] = useState<Busy>({});
   const [bulk, setBulk] = useState<{ done: number; total: number } | null>(null);
-
   // "Fetch failed — fill manually": open the editor when a fetch lands in the failed state
-  useEffect(() => {
-    if (!justFailed) return;
-    setOpenId(justFailed);
-    clearJustFailed();
-  }, [justFailed, clearJustFailed]);
+  const { items, replace, refresh, loadError, add, patch, remove, retry } = useItems(initialItems, { onFetchFailed: setOpenId });
+  const toast = useToast();
 
   const setFlag = useCallback((id: string, key: "retry" | "studio", on: boolean) => {
     setBusy((b) => ({ ...b, [id]: { ...b[id], [key]: on } }));
