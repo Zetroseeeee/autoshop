@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { MOBILE_UA, type FetchedPage } from "./fetchPage";
 
 /**
@@ -18,12 +17,25 @@ const LOCAL_CHROME = [
   "/usr/bin/chromium-browser",
 ];
 
+/**
+ * Probe the filesystem without a statically analysable `fs` call: Next's output
+ * tracer treats `existsSync(variable)` as "trace the whole project", which would
+ * drag the entire repo into the Vercel function bundle.
+ */
+async function fileExists(path: string): Promise<boolean> {
+  const fs = (await import(/* turbopackIgnore: true */ /* webpackIgnore: true */ "node:" + "fs/promises")) as typeof import("node:fs/promises");
+  return fs
+    .access(path)
+    .then(() => true)
+    .catch(() => false);
+}
+
 async function resolveBrowser(): Promise<{ executablePath: string; args: string[] }> {
   const explicit = process.env.CHROME_EXECUTABLE_PATH;
-  if (explicit && existsSync(explicit)) return { executablePath: explicit, args: [] };
+  if (explicit && (await fileExists(explicit))) return { executablePath: explicit, args: [] };
   const serverless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.AWS_EXECUTION_ENV);
   if (!serverless) {
-    for (const p of LOCAL_CHROME) if (existsSync(p)) return { executablePath: p, args: [] };
+    for (const p of LOCAL_CHROME) if (await fileExists(p)) return { executablePath: p, args: [] };
   }
   const { default: chromium } = await import("@sparticuz/chromium");
   chromium.setGraphicsMode = false; // no WebGL needed for scraping — skips swiftshader extraction
