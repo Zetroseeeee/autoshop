@@ -35,8 +35,12 @@ const WALL_TITLE_RE =
 const WALL_MARKUP_RE =
   /cf-browser-verification|cf-challenge-running|cf_chl_opt|\/cdn-cgi\/challenge-platform\/h\/|_Incapsula_Resource|distil_r_captcha|px-captcha|akam-logo|triggerInterstitialChallenge|sec-cpt-if|geo\.captcha-delivery\.com\/captcha|captcha-delivery\.com\/captcha|hcaptcha\.com\/1\/api|ddm-captcha|\/_sec\/cp_challenge|id="challenge-form"|challenge-error-text/i;
 
-const BAD_IMAGE_RE =
-  /\.svg(\?|$)|favicon|\/logos?\/|logo[-_.]|[-_.]logo|sprite|\/icons?\/|icon[-_.]|[-_.]icon|placeholder|blank\.|pixel|spacer|loading|\bflag\b|badge|trustpilot|payment|klarna|clearpay|paypal|visa|mastercard/i;
+/* Image URL hygiene — applied to path segments, never to the whole URL, so a product slug like
+   "overshirt-with-badge" or "icon-logo-jumper" is not mistaken for a site badge/logo. */
+const BAD_IMAGE_DIR_RE = /^(logos?|icons?|badges?|sprites?|flags?|favicons?|placeholders?|payments?|payment-?(icons?|logos?)|brand-?assets?|social|share)$/i;
+const BAD_IMAGE_FILE_TOKEN_RE =
+  /^(favicon|sprite|sprites|placeholder|blank|pixel|spacer|loading|loader|trustpilot|klarna|clearpay|afterpay|paypal|mastercard|visa|amex|applepay|googlepay|og-default|default-og|share-image|social-share)$/i;
+const BAD_IMAGE_FILE_RE = /^(logo|icon|badge|flag)s?([-_][a-z0-9]+)?$/i;
 
 export function parseProductHtml(html: string, pageUrl: string, opts: ParseOptions = {}): Parsed {
   const out: Parsed = { botWall: false, appShell: false, sources: {} };
@@ -70,7 +74,7 @@ export function parseProductHtml(html: string, pageUrl: string, opts: ParseOptio
     if (name) set(out, "name", name, "jsonld");
     const brand = brandName(product.brand);
     if (brand) set(out, "brand", brand, "jsonld");
-    const image = absolutise(pickImage(product.image), pageUrl);
+    const image = absolutise(pickImage(product.image), pageUrl, { declared: true });
     if (image) set(out, "imageUrl", image, "jsonld");
     const price = priceFromOffers(product.offers);
     if (price) applyPrice(out, price.amount, price.currency, "jsonld");
@@ -380,7 +384,7 @@ function twitterPrice($: CheerioAPI): string | undefined {
   return undefined;
 }
 
-export function absolutise(src: string | undefined | null, pageUrl: string): string | undefined {
+export function absolutise(src: string | undefined | null, pageUrl: string, opts: { declared?: boolean } = {}): string | undefined {
   if (!src) return undefined;
   let s = decodeHTML(src.trim());
   if (!s || s.startsWith("data:") || s.startsWith("blob:")) return undefined;
@@ -392,14 +396,32 @@ export function absolutise(src: string | undefined | null, pageUrl: string): str
     return undefined;
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
-  if (!isLikelyProductImage(url.href)) return undefined;
+  if (!isLikelyProductImage(url.href, opts)) return undefined;
   return url.href;
 }
 
-export function isLikelyProductImage(url: string): boolean {
-  const path = url.split("?")[0] ?? url;
-  if (BAD_IMAGE_RE.test(path)) return false;
-  if (/\.(svg|gif|ico)$/i.test(path)) return false;
+/**
+ * Reject images that are obviously not product shots: vector/animated/icon formats,
+ * anything living in a logos/icons/badges/sprites directory, or files named like a
+ * logo/icon/badge/payment mark. A JSON-LD `image` is a declared product image, so
+ * for those only the format and directory rules apply.
+ */
+export function isLikelyProductImage(url: string, opts: { declared?: boolean } = {}): boolean {
+  let pathname: string;
+  try {
+    pathname = new URL(url).pathname;
+  } catch {
+    return false;
+  }
+  if (/\.(svg|gif|ico)$/i.test(pathname)) return false;
+  const segments = pathname.split("/").filter(Boolean);
+  const file = segments.pop() ?? "";
+  if (segments.some((seg) => BAD_IMAGE_DIR_RE.test(seg))) return false;
+  if (/^favicon/i.test(file)) return false;
+  if (opts.declared) return true;
+  const stem = file.replace(/\.[a-z0-9]+$/i, "");
+  if (BAD_IMAGE_FILE_RE.test(stem)) return false;
+  if (stem.split(/[-_.]/).some((t) => BAD_IMAGE_FILE_TOKEN_RE.test(t))) return false;
   return true;
 }
 

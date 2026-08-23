@@ -108,7 +108,7 @@ export async function downloadSourceImage(url: string, referer?: string): Promis
 
 export async function generatePackshot(source: { data: Buffer; mimeType: string }, prompt: string): Promise<Buffer> {
   let lastErr: unknown;
-  for (const model of GEMINI_IMAGE_MODELS) {
+  for (const [i, model] of GEMINI_IMAGE_MODELS.entries()) {
     try {
       const res = await gemini().models.generateContent({
         model,
@@ -125,29 +125,53 @@ export async function generatePackshot(source: { data: Buffer; mimeType: string 
       return await sharp(png).png().toBuffer();
     } catch (err) {
       lastErr = err;
-      const msg = err instanceof Error ? err.message : String(err);
-      // model renamed/retired → try the next id; anything else is final
-      if (/not found|NOT_FOUND|is not supported|404/i.test(msg) && model !== GEMINI_IMAGE_MODELS[GEMINI_IMAGE_MODELS.length - 1]) {
-        console.warn(`[studio] model ${model} unavailable, trying next`);
+      if (err instanceof StudioError) break;
+      const info = apiError(err);
+      // Free-tier keys have a hard limit of 0 for image models — no other model id will help.
+      if (info.billing) {
+        throw new StudioError(
+          "Studio photos need billing enabled on the Google Cloud project behind GEMINI_API_KEY — the image models have no free tier. Text features work without it.",
+        );
+      }
+      // Model renamed/retired, or this model's own rate limit is saturated → try the next id.
+      const last = i === GEMINI_IMAGE_MODELS.length - 1;
+      if (!last && (info.notFound || info.status === 429)) {
+        console.warn(`[studio] ${model} unavailable (${info.status ?? "?"}), trying ${GEMINI_IMAGE_MODELS[i + 1]}`);
         continue;
       }
       break;
     }
   }
   if (lastErr instanceof StudioError) throw lastErr;
-  throw new StudioError(`Image generation failed: ${apiErrorMessage(lastErr).slice(0, 160)}`);
+  throw new StudioError(`Image generation failed: ${apiError(lastErr).message.slice(0, 160)}`);
 }
 
-/** The SDK throws with a JSON body as the message; pull out the human part. */
-function apiErrorMessage(err: unknown): string {
+interface ApiErrorInfo {
+  status?: number;
+  message: string;
+  notFound: boolean;
+  billing: boolean;
+}
+
+/** The SDK throws with a JSON body as the message; pull out the useful parts. */
+function apiError(err: unknown): ApiErrorInfo {
   const raw = err instanceof Error ? err.message : String(err);
+  let status: number | undefined;
+  let message = raw;
   try {
-    const json = JSON.parse(raw.slice(raw.indexOf("{"))) as { error?: { message?: string; status?: string } };
-    if (json.error?.message) return json.error.message;
+    const json = JSON.parse(raw.slice(raw.indexOf("{"))) as { error?: { code?: number; message?: string; status?: string } };
+    if (json.error?.message) message = json.error.message;
+    if (typeof json.error?.code === "number") status = json.error.code;
   } catch {
     /* not JSON */
   }
-  return raw;
+  status ??= (err as { status?: number } | null)?.status;
+  return {
+    status,
+    message,
+    notFound: status === 404 || /not found|NOT_FOUND|is not supported/i.test(message),
+    billing: status === 429 && /free_tier[^\n]*limit: 0|billing details/i.test(message),
+  };
 }
 
 async function saveToBlob(itemId: string, view: "front" | "back", png: Buffer): Promise<string> {

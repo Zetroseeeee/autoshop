@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parseAmount, parsePriceInput } from "../lib/money";
-import { classify, cleanName, parseProductHtml } from "../lib/parse";
+import { classify, cleanName, isLikelyProductImage, parseProductHtml } from "../lib/parse";
 
 const fixture = (name: string) => readFileSync(join(__dirname, "fixtures", name), "utf8");
 
@@ -132,6 +132,24 @@ describe("sanity rules", () => {
   it("rejects prices of £100,000 or more", () => {
     const html = `<html><head><title>Car</title><meta property="product:price:amount" content="125000"></head><body>${"x ".repeat(900)}</body></html>`;
     expect(parseProductHtml(html, "https://cars.example/1").priceMinor).toBeUndefined();
+  });
+});
+
+describe("image hygiene", () => {
+  it("keeps product images whose slug merely contains badge/logo/icon words", () => {
+    expect(isLikelyProductImage("https://images.asos-media.com/products/asos-design-cotton-twill-overshirt-with-badge-in-dusty-pink/210983384-1-dustypink")).toBe(true);
+    expect(isLikelyProductImage("https://images.asos-media.com/products/polo-ralph-lauren-icon-logo-estate-rib-quarter-zip-jumper-in-beige/211106879-1-beige")).toBe(true);
+    expect(isLikelyProductImage("https://cdn.shop.example/products/logo-tee-white.jpg", { declared: true })).toBe(true);
+  });
+
+  it("rejects logos, icons, sprites, payment marks and vector formats", () => {
+    expect(isLikelyProductImage("https://content.asos-media.com/-/media/images/asos/logo/icon_svg.svg")).toBe(false);
+    expect(isLikelyProductImage("https://shop.example/assets/logo.png")).toBe(false);
+    expect(isLikelyProductImage("https://shop.example/static/icons/cart.png")).toBe(false);
+    expect(isLikelyProductImage("https://shop.example/img/badge-new.png")).toBe(false);
+    expect(isLikelyProductImage("https://shop.example/img/klarna-badge.png")).toBe(false);
+    expect(isLikelyProductImage("https://shop.example/favicon-32x32.png")).toBe(false);
+    expect(isLikelyProductImage("https://shop.example/media/hero.gif")).toBe(false);
   });
 });
 

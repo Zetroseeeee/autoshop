@@ -46,7 +46,7 @@ See [`.env.example`](.env.example) — every key is documented there. Required: 
 1. Push this repo to GitHub and import it in Vercel (framework: Next.js). `vercel.json` sets the build command to `npm run db:migrate && npm run build`, so migrations run on every deploy.
 2. **Database:** create a Neon project (or use Vercel's Neon integration). Set `DATABASE_URL` to the **pooled** connection string (`…-pooler.…neon.tech/…?sslmode=require`).
 3. **Blob:** Storage → Create → Blob. Vercel adds `BLOB_READ_WRITE_TOKEN` automatically.
-4. **Gemini:** create a key in Google AI Studio → `GEMINI_API_KEY`.
+4. **Gemini:** create a key in Google AI Studio → `GEMINI_API_KEY`. **Enable billing** on that key's Google Cloud project — the image models have a free-tier limit of 0, so studio photos fail with `429 RESOURCE_EXHAUSTED` on an unbilled key (the brand/category text fallback works either way).
 5. Set `ACCESS_CODE` (digits — the unlock screen is a numeric keypad), `APP_URL` (e.g. `https://basket-emile.vercel.app`), and any optional keys.
 6. Deploy. Open the URL → passcode screen → unlock. Add to Home Screen on iOS; "Install app" on Android/desktop Chrome.
 
