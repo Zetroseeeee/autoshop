@@ -18,8 +18,13 @@ export function useToast() {
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const counter = useRef(0);
+  const recent = useRef<{ message: string; at: number } | null>(null);
 
   const push = useCallback((message: string, kind: Kind = "info") => {
+    // Collapse duplicates fired within a second (double taps, StrictMode double effects).
+    const now = Date.now();
+    if (recent.current && recent.current.message === message && now - recent.current.at < 1000) return;
+    recent.current = { message, at: now };
     const id = ++counter.current;
     setToasts((t) => [...t.slice(-2), { id, message, kind }]);
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), kind === "error" ? 5000 : 3000);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { groupByStore } from "@/lib/basket";
 import type { Item } from "@/lib/schema";
@@ -16,13 +16,26 @@ import { SparkIcon, Spinner } from "./icons";
 
 type Busy = Record<string, { retry?: boolean; studio?: boolean }>;
 
-export function BasketScreen({ initialItems, studioEnabled }: { initialItems: Item[]; studioEnabled: boolean }) {
+const NOTICES: Record<string, [string, "success" | "error"]> = {
+  added: ["Added — fetching details", "success"],
+  nolink: ["No link found in what was shared", "error"],
+};
+
+export function BasketScreen({ initialItems, studioEnabled, notice }: { initialItems: Item[]; studioEnabled: boolean; notice?: string | null }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [busy, setBusy] = useState<Busy>({});
   const [bulk, setBulk] = useState<{ done: number; total: number } | null>(null);
   // "Fetch failed — fill manually": open the editor when a fetch lands in the failed state
   const { items, replace, refresh, loadError, add, patch, remove, retry } = useItems(initialItems, { onFetchFailed: setOpenId });
   const toast = useToast();
+
+  // share-target / quick-add land here with ?notice=… — show it once and clean the URL
+  useEffect(() => {
+    const n = notice ? NOTICES[notice] : undefined;
+    if (!n) return;
+    toast(n[0], n[1]);
+    window.history.replaceState(null, "", "/");
+  }, [notice, toast]);
 
   const setFlag = useCallback((id: string, key: "retry" | "studio", on: boolean) => {
     setBusy((b) => ({ ...b, [id]: { ...b[id], [key]: on } }));

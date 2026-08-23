@@ -1,0 +1,8 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run db:migrate && npm run build",
+  "framework": "nextjs",
+  "regions": [
+    "lhr1"
+  ]
+}
