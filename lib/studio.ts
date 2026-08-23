@@ -60,14 +60,48 @@ const STYLE: Record<ItemCategory, string> = {
   other: "front-on",
 };
 
-export function studioPrompt(category: ItemCategory, view: "front" | "back" = "front"): string {
-  const viewText = view === "front" ? "front view" : "back view — infer the back of the item consistently with what is visible in the source photo";
+export interface StudioSubject {
+  category: ItemCategory;
+  /** the listing title, so the model knows WHICH garment to isolate from an outfit shot */
+  name?: string | null;
+  brand?: string | null;
+}
+
+/**
+ * Builds the packshot instruction. The item's own name is included because source
+ * photos are often full-outfit or on-model shots: without it the model happily
+ * re-shoots the whole outfit instead of the one item in the basket.
+ */
+export function studioPrompt(subject: StudioSubject, view: "front" | "back" = "front"): string {
+  const viewText =
+    view === "front" ? "front view" : "back view — infer the back of the item consistently with what is visible in the source photo";
+  const label = describeSubject(subject);
   return (
-    `Professional e-commerce product photo of this exact item. Extract the product from the photo and re-shoot it as a clean studio packshot: ` +
-    `centred, ${viewText}, ${STYLE[category]}, pure white seamless background (#FFFFFF), soft even studio lighting, subtle natural shadow beneath the item, ` +
-    `no people, no hands, no text, no props, no watermark. Preserve the item's exact colours, materials, proportions, logos, stitching and details. Square 1:1 composition.`
+    `Professional e-commerce product photo of this exact item. The item is: ${label}. ` +
+    `The source photo may show it worn by a person, styled with other garments, or in a cluttered setting: ` +
+    `isolate ONLY that single item and exclude everything else — any other clothing layers, trousers, shorts, socks, shoes, bags, hats or accessories worn or shown alongside it must not appear. ` +
+    `Re-shoot it as a clean studio packshot: centred, ${viewText}, ${STYLE[subject.category]}, ` +
+    `pure white seamless background (#FFFFFF) filling the entire frame edge to edge with no grey tone, vignette or gradient, ` +
+    `soft even studio lighting, subtle natural shadow beneath the item, no people, no body parts, no hands, no text, no props, no watermark. ` +
+    `Preserve the item's exact colours, materials, proportions, logos, stitching and details. Square 1:1 composition.`
   );
 }
+
+/** "a dusty pink cotton twill overshirt (jacket) by ASOS DESIGN" — falls back to the category alone. */
+function describeSubject({ category, name, brand }: StudioSubject): string {
+  const title = (name ?? "").trim();
+  const label = brand && title && !title.toLowerCase().includes(brand.toLowerCase()) ? `${brand} ${title}` : title;
+  return label ? `${label} (a ${CATEGORY_NOUN[category]})` : `a ${CATEGORY_NOUN[category]}`;
+}
+
+const CATEGORY_NOUN: Record<ItemCategory, string> = {
+  jacket: "jacket or outer layer",
+  top: "top",
+  trousers: "pair of trousers",
+  shoes: "pair of shoes",
+  accessory: "accessory",
+  other: "single product",
+};
 
 // ---- source image -------------------------------------------------------------
 
@@ -205,14 +239,15 @@ export async function generateStudio(itemId: string): Promise<StudioOutcome> {
 
   const source = await downloadSourceImage(item.sourceImageUrl, item.url);
 
-  const front = await generatePackshot(source, studioPrompt(item.category, "front"));
+  const subject: StudioSubject = { category: item.category, name: item.name, brand: item.brand };
+  const front = await generatePackshot(source, studioPrompt(subject, "front"));
   const frontUrl = await saveToBlob(item.id, "front", front);
   await incrementUsage();
   let updated = (await updateItem(item.id, { studioImageUrl: frontUrl })) ?? item;
 
   if (backViewEnabled()) {
     try {
-      const back = await generatePackshot(source, studioPrompt(item.category, "back"));
+      const back = await generatePackshot(source, studioPrompt(subject, "back"));
       const backUrl = await saveToBlob(item.id, "back", back);
       await incrementUsage();
       updated = (await updateItem(item.id, { studioBackUrl: backUrl })) ?? updated;
