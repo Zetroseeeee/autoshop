@@ -5,6 +5,7 @@ import { LockButton } from "@/components/LockButton";
 import { ShortcutGuide } from "@/components/ShortcutGuide";
 import { ToastProvider } from "@/components/Toast";
 import { CheckIcon } from "@/components/icons";
+import { resolveAppUrl } from "@/lib/appUrl";
 import { autoStudioEnabled, backViewEnabled, studioCap, studioUsageThisMonth } from "@/lib/studio";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +16,7 @@ const ENV_KEYS = [
   ["GEMINI_API_KEY", "Gemini (studio photos + brand/category fallback)"],
   ["ACCESS_CODE", "Passcode"],
   ["SCRAPER_API_KEY", "Scraping API for bot-walled stores (optional)"],
-  ["APP_URL", "Public URL"],
+  ["APP_URL", "Public URL (optional — falls back to this page's own origin)"],
   ["CRON_SECRET", "Daily price check (optional)"],
 ] as const;
 
@@ -29,7 +30,7 @@ export default async function SettingsPage() {
     usageError = true;
   }
   const cap = studioCap();
-  const appUrl = (process.env.APP_URL ?? "").replace(/\/+$/, "");
+  const appUrl = await resolveAppUrl();
 
   return (
     <ToastProvider>
