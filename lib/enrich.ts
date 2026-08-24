@@ -3,7 +3,7 @@ import { guessCategory } from "./category";
 import { db } from "./db";
 import { fetchHtml } from "./fetchPage";
 import { classify, parseProductHtml, type Parsed } from "./parse";
-import { items, type Item, type ItemCategory } from "./schema";
+import { items, type Item, type ItemCategory, type StockState } from "./schema";
 import { hostOf, slugWords } from "./url";
 
 /**
@@ -39,6 +39,10 @@ export interface EnrichResult {
   imageUrl?: string;
   category?: ItemCategory;
   fetchState: "ok" | "partial" | "failed";
+  /** availability as observed this run; "unknown" when the page said nothing usable */
+  stockState: StockState;
+  platform?: string;
+  variantId?: string;
   /** diagnostics: which tier/rule produced each field */
   sources: Record<string, string>;
   tiers: string[];
@@ -50,29 +54,54 @@ export const needsMore = (p: Parsed) => p.priceMinor == null || !p.imageUrl;
 export function mergeParsed(base: Parsed, extra: Parsed | null | undefined, tier: string): Parsed {
   if (!extra) return base;
   const out: Parsed = { ...base, sources: { ...base.sources } };
-  for (const key of ["name", "brand", "imageUrl"] as const) {
+  for (const key of ["name", "brand", "imageUrl", "variantId"] as const) {
     if (!out[key] && extra[key]) {
       out[key] = extra[key];
       out.sources[key] = `${tier}:${extra.sources[key] ?? "?"}`;
     }
+  }
+  if (!out.availability && extra.availability) {
+    out.availability = extra.availability;
+    out.sources.availability = `${tier}:${extra.sources.availability ?? "?"}`;
   }
   if (out.priceMinor == null && extra.priceMinor != null) {
     out.priceMinor = extra.priceMinor;
     out.currency = extra.currency;
     out.sources.price = `${tier}:${extra.sources.price ?? "?"}`;
   }
+  if (!out.platform && extra.platform) out.platform = extra.platform;
   out.botWall = base.botWall && (extra.botWall ?? true);
   out.appShell = base.appShell && extra.appShell;
   return out;
 }
 
 /** Tier 1: direct fetch + parse. */
-export async function tier1(url: string): Promise<Parsed> {
+export async function tier1(url: string): Promise<Parsed & { httpStatus?: number }> {
   const page = await fetchHtml(url, 8000);
   if (!page) return { botWall: false, appShell: false, sources: { fetch: "network-error" } };
   const parsed = parseProductHtml(page.html, page.finalUrl || url, { status: page.status });
   parsed.sources.tier1 = `status:${page.status}`;
-  return parsed;
+  return { ...parsed, httpStatus: page.status };
+}
+
+/**
+ * Decide availability from what the page said plus what we knew before.
+ *
+ * Marketplace listings (Vinted especially) do not say "sold" — the listing simply
+ * stops rendering product data while still returning 200. So an item that used to
+ * parse and now yields nothing is treated as gone, but ONLY when the page was
+ * genuinely readable: a bot wall, a network error or an empty app shell must never
+ * be mistaken for a sale.
+ */
+export function decideStock(parsed: Parsed & { httpStatus?: number }, previous: Pick<Item, "fetchState" | "name" | "priceMinor">): StockState {
+  if (parsed.availability) return parsed.availability;
+  const status = parsed.httpStatus;
+  if (status === 404 || status === 410) return "out_of_stock";
+  const hadData = previous.fetchState === "ok" || previous.fetchState === "partial" || Boolean(previous.name) || previous.priceMinor != null;
+  const readable = status != null && status >= 200 && status < 300 && !parsed.botWall && !parsed.appShell;
+  const foundNothing = !parsed.name && parsed.priceMinor == null && !parsed.imageUrl;
+  if (hadData && readable && foundNothing) return "out_of_stock";
+  return "unknown";
 }
 
 export type TierRunner = (url: string, host: string, soFar: Parsed) => Promise<Parsed | null>;
@@ -85,17 +114,23 @@ export interface EnrichOptions {
 }
 
 /** Run the whole pipeline for a URL. Pure with respect to the database. */
-export async function enrichUrl(url: string, opts: EnrichOptions = {}): Promise<EnrichResult> {
+export async function enrichUrl(
+  url: string,
+  opts: EnrichOptions = {},
+  previous: Pick<Item, "fetchState" | "name" | "priceMinor"> = { fetchState: "pending", name: "", priceMinor: null },
+): Promise<EnrichResult> {
   const host = hostOf(url);
   const tiers: string[] = ["tier1"];
-  let parsed = await tier1(url);
+  const first = await tier1(url);
+  const httpStatus = first.httpStatus;
+  let parsed: Parsed & { httpStatus?: number } = first;
 
   for (const tier of opts.tiers ?? []) {
     if (!needsMore(parsed) || !tier.when(parsed, host)) continue;
     tiers.push(tier.name);
     try {
       const extra = await tier.run(url, host, parsed);
-      parsed = mergeParsed(parsed, extra, tier.name);
+      parsed = { ...mergeParsed(parsed, extra, tier.name), httpStatus: parsed.httpStatus ?? httpStatus };
     } catch (err) {
       parsed.sources[`${tier.name}Error`] = err instanceof Error ? err.message.slice(0, 120) : "error";
     }
@@ -129,6 +164,9 @@ export async function enrichUrl(url: string, opts: EnrichOptions = {}): Promise<
     imageUrl: parsed.imageUrl,
     category,
     fetchState: classify(parsed),
+    stockState: decideStock(parsed, previous),
+    platform: parsed.platform,
+    variantId: parsed.variantId,
     sources: parsed.sources,
     tiers,
   };
@@ -146,6 +184,11 @@ export async function applyEnrichment(item: Item, r: EnrichResult): Promise<Item
       sourceImageUrl: r.imageUrl ?? item.sourceImageUrl,
       category: item.category === "other" && r.category ? r.category : item.category,
       fetchState: r.fetchState,
+      // Never downgrade a known state to "unknown" on a flaky fetch.
+      platform: r.platform ?? item.platform,
+      variantId: r.variantId ?? item.variantId,
+      stockState: r.stockState === "unknown" ? item.stockState : r.stockState,
+      stockCheckedAt: r.stockState === "unknown" ? item.stockCheckedAt : new Date(),
       lastCheckedAt: new Date(),
     })
     .where(and(eq(items.id, item.id), eq(items.userId, item.userId)))

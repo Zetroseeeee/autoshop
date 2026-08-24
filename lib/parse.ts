@@ -7,12 +7,20 @@ import { currencyFromText, isValidCurrency, parseAmount, saneAmount } from "./mo
  * Product page parser (spec §6, Tier 1). Pure: HTML in, fields out. Used by every
  * tier, so it must never invent data — a field is either found or undefined.
  */
+export type Availability = "in_stock" | "low_stock" | "out_of_stock";
+
 export interface Parsed {
   name?: string;
   brand?: string;
   priceMinor?: number;
   currency?: string;
   imageUrl?: string;
+  /** availability, when the page states it; absent means "no signal", never a guess */
+  availability?: Availability;
+  /** e-commerce platform, when confidently detected (currently only Shopify) */
+  platform?: "shopify";
+  /** platform variant id — what an add-to-cart deep link needs */
+  variantId?: string;
   /** the page is a bot-wall / challenge page: treat as "nothing useful" */
   botWall: boolean;
   /** the page looks like an empty client-rendered shell */
@@ -80,6 +88,45 @@ export function parseProductHtml(html: string, pageUrl: string, opts: ParseOptio
     if (price) applyPrice(out, price.amount, price.currency, "jsonld");
   }
 
+  // ---- 1b. Availability ---------------------------------------------------
+  if (product) {
+    const avail = availabilityFromOffers(product.offers);
+    if (avail) {
+      out.availability = avail;
+      out.sources.availability = "jsonld";
+    }
+  }
+  if (!out.availability) {
+    const metaAvail =
+      $('meta[property="product:availability"]').first().attr("content") ??
+      $('meta[property="og:availability"]').first().attr("content") ??
+      $('[itemprop="availability"]').first().attr("href") ??
+      $('[itemprop="availability"]').first().attr("content");
+    const mapped = mapAvailability(metaAvail);
+    if (mapped) {
+      out.availability = mapped;
+      out.sources.availability = "meta";
+    }
+  }
+
+  if (!out.availability) {
+    const storeAvail = storeAvailability(html, pageUrl);
+    if (storeAvail) {
+      out.availability = storeAvail.availability;
+      out.sources.availability = storeAvail.source;
+    }
+  }
+
+  // ---- 1c. Platform / variant (for add-to-cart deep links) ------------------
+  const shopify = detectShopify(html, $, pageUrl);
+  if (shopify) {
+    out.platform = "shopify";
+    if (shopify.variantId) {
+      out.variantId = shopify.variantId;
+      out.sources.variantId = shopify.source;
+    }
+  }
+
   // ---- 2. Meta tags -------------------------------------------------------
   const meta = (sel: string) => $(sel).first().attr("content")?.trim() || undefined;
   if (!out.name) {
@@ -137,7 +184,7 @@ export function parseProductHtml(html: string, pageUrl: string, opts: ParseOptio
 
   // ---- 5. Embedded JSON state (ASOS, Uniqlo, …) -----------------------------
   if (out.priceMinor == null) {
-    const p = embeddedPrice(html);
+    const p = embeddedPrice(html, pageUrl);
     if (p) applyPrice(out, p.amount, p.currency, `embedded:${p.source}`);
   }
 
@@ -342,6 +389,129 @@ interface FoundPrice {
   currency?: string;
 }
 
+/**
+ * Availability signals that only exist in a particular store's own markup.
+ * Each rule is anchored on something specific to that page — never a bare word
+ * like "Sold", which appears in every Vinted page's inlined i18n dictionary.
+ */
+function storeAvailability(html: string, pageUrl: string): { availability: Availability; source: string } | undefined {
+  const host = hostOf(pageUrl);
+
+  // Vinted: a sold listing still returns 200 with a price, so it would otherwise
+  // look identical to a live one. The RSC flight payload carries can_buy.
+  if (/(^|\.)vinted\./.test(host)) {
+    const flight = rscFlightPayload(html);
+    if (flight) {
+      if (/"can_buy"\s*:\s*false/.test(flight)) return { availability: "out_of_stock", source: "vinted:can_buy" };
+      if (/"can_buy"\s*:\s*true/.test(flight)) return { availability: "in_stock", source: "vinted:can_buy" };
+    }
+  }
+
+  // ASOS: JSON-LD offers is empty; stock lives in the embedded stockPriceResponse
+  // array, which also covers recommended products — anchor on this product's id.
+  if (/(^|\.)asos\./.test(host)) {
+    const id = pageUrl.match(/\/prd\/(\d+)/)?.[1];
+    if (id) {
+      let anchor = html.indexOf(`"productId":${id}`);
+      if (anchor < 0) anchor = html.indexOf(`"id":${id}`);
+      if (anchor >= 0) {
+        const slice = html.slice(anchor, anchor + 1200);
+        const inStock = slice.match(/"isInStock"\s*:\s*(true|false)/)?.[1];
+        if (inStock === "false") return { availability: "out_of_stock", source: "asos:isInStock" };
+        if (inStock === "true") {
+          const low = /"isLowInStock"\s*:\s*true/.test(slice);
+          return { availability: low ? "low_stock" : "in_stock", source: "asos:isInStock" };
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
+/** Concatenated Next.js RSC flight payload (self.__next_f.push([1,"…"])). */
+function rscFlightPayload(html: string): string | undefined {
+  let out = "";
+  for (const m of html.matchAll(/self\.__next_f\.push\(\[1,\s*("(?:[^"\\]|\\.)*")\]\)/g)) {
+    try {
+      out += JSON.parse(m[1]!) as string;
+    } catch {
+      /* skip malformed chunk */
+    }
+  }
+  return out || undefined;
+}
+
+/**
+ * Shopify detection + variant id, which together enable a real add-to-cart link.
+ * The variant id comes from the JSON-LD offer URL (`?variant=…`) — the one place
+ * it appears reliably, since theme markup varies far too much to depend on.
+ */
+function detectShopify(html: string, $: CheerioAPI, pageUrl: string): { variantId?: string; source: string } | undefined {
+  const isShopify =
+    /Shopify\.shop\s*=/.test(html) ||
+    /\/cdn\/shop\/(files|products)/.test(html) ||
+    Boolean($("script#shopify-features").length);
+  if (!isShopify) return undefined;
+  let path: string;
+  try {
+    path = new URL(pageUrl).pathname;
+  } catch {
+    return undefined;
+  }
+  if (!path.includes("/products/")) return { source: "shopify:detected" };
+
+  // Prefer a variant that is actually in stock — a permalink does not enforce it.
+  const offers: Array<{ id: string; available: boolean }> = [];
+  $('script[type="application/ld+json"]').each((_, el) => {
+    const json = parseJsonLoose($(el).contents().text().trim());
+    if (json == null) return;
+    for (const node of walkJson(json)) {
+      if (!isProductType(node)) continue;
+      const list = Array.isArray(node.offers) ? node.offers : node.offers ? [node.offers] : [];
+      for (const raw of list) {
+        if (!raw || typeof raw !== "object") continue;
+        const o = raw as Json;
+        const id = asString(o.url)?.match(/[?&]variant=(\d+)/)?.[1];
+        if (!id) continue;
+        offers.push({ id, available: mapAvailability(asString(o.availability)) !== "out_of_stock" });
+      }
+    }
+  });
+  const chosen = offers.find((o) => o.available) ?? offers[0];
+  return chosen ? { variantId: chosen.id, source: "shopify:jsonld" } : { source: "shopify:detected" };
+}
+
+/**
+ * schema.org availability → our three states. Anything unrecognised returns
+ * undefined so the caller records "unknown" rather than inventing a state.
+ */
+export function mapAvailability(raw: unknown): Availability | undefined {
+  if (typeof raw !== "string") return undefined;
+  const v = raw.trim().toLowerCase().replace(/^https?:\/\/schema\.org\//, "").replace(/[\s_-]/g, "");
+  if (["instock", "onlineonly", "instoreonly", "preorder", "presale", "backorder"].includes(v)) return "in_stock";
+  if (["limitedavailability", "lowstock"].includes(v)) return "low_stock";
+  if (["outofstock", "soldout", "discontinued"].includes(v)) return "out_of_stock";
+  return undefined;
+}
+
+/** Availability from an offers object/array/AggregateOffer. */
+function availabilityFromOffers(offers: unknown, depth = 0): Availability | undefined {
+  if (!offers || depth > 3) return undefined;
+  const list = Array.isArray(offers) ? offers : [offers];
+  let sawOut = false;
+  for (const raw of list) {
+    if (!raw || typeof raw !== "object") continue;
+    const o = raw as Json;
+    const direct = mapAvailability(asString(o.availability) ?? asString((o.availability as Json | undefined)?.["@id"]));
+    if (direct === "in_stock" || direct === "low_stock") return direct;
+    if (direct === "out_of_stock") sawOut = true;
+    const nested = availabilityFromOffers(o.offers, depth + 1);
+    if (nested === "in_stock" || nested === "low_stock") return nested;
+    if (nested === "out_of_stock") sawOut = true;
+  }
+  return sawOut ? "out_of_stock" : undefined;
+}
+
 function priceFromOffers(offers: unknown): FoundPrice | undefined {
   const list = Array.isArray(offers) ? offers : offers ? [offers] : [];
   for (const raw of list) {
@@ -425,16 +595,30 @@ export function isLikelyProductImage(url: string, opts: { declared?: boolean } =
   return true;
 }
 
-const EMBEDDED_PATTERNS: Array<{ source: string; re: RegExp; pick: (m: RegExpMatchArray, html: string) => FoundPrice | undefined }> = [
+const EMBEDDED_PATTERNS: Array<{ source: string; re: RegExp; pick: (m: RegExpMatchArray, html: string, pageUrl?: string) => FoundPrice | undefined }> = [
   {
-    // ASOS: "price":{"current":{"value":110,"text":"£110.00", …}, …, "currency":"GBP"
+    // ASOS embeds a stockPriceResponse array covering the page product AND the
+    // recommendation carousel, so the first "current" block in the document is
+    // often a different, cheaper product. Anchor on the productId in the URL.
     source: "asos",
     re: /"current":\{"value":(\d+(?:\.\d+)?),"text":"([^"]*)"/,
-    pick: (m, html) => {
-      const amount = Number(m[1]);
-      const after = html.slice(m.index ?? 0, (m.index ?? 0) + 800);
+    pick: (m, html, pageUrl) => {
+      const wanted = pageUrl?.match(/\/prd\/(\d+)/)?.[1];
+      let slice = html;
+      let offset = m.index ?? 0;
+      if (wanted) {
+        let anchor = html.indexOf(`"productId":${wanted}`);
+        if (anchor < 0) anchor = html.indexOf(`"id":${wanted}`);
+        if (anchor < 0) return undefined; // cannot prove which product this price belongs to
+        slice = html.slice(anchor, anchor + 1200);
+        const own = slice.match(/"current":\{"value":(\d+(?:\.\d+)?),"text":"([^"]*)"/);
+        if (!own) return undefined;
+        const cur = slice.match(/"currency":"([A-Z]{3})"/)?.[1] ?? currencyFromText(decodeJsonString(own[2] ?? "")) ?? undefined;
+        return { amount: Number(own[1]), currency: cur };
+      }
+      const after = html.slice(offset, offset + 800);
       const cur = after.match(/"currency":"([A-Z]{3})"/)?.[1] ?? currencyFromText(decodeJsonString(m[2] ?? "")) ?? undefined;
-      return { amount, currency: cur };
+      return { amount: Number(m[1]), currency: cur };
     },
   },
   {
@@ -460,11 +644,11 @@ function decodeJsonString(s: string): string {
 }
 
 /** Price from JSON state embedded in scripts — conservative, known shapes only. */
-export function embeddedPrice(html: string): (FoundPrice & { source: string }) | undefined {
+export function embeddedPrice(html: string, pageUrl?: string): (FoundPrice & { source: string }) | undefined {
   for (const p of EMBEDDED_PATTERNS) {
     const m = html.match(p.re);
     if (!m) continue;
-    const found = p.pick(m, html);
+    const found = p.pick(m, html, pageUrl);
     if (found && saneAmount(found.amount)) return { ...found, source: p.source };
   }
   return undefined;

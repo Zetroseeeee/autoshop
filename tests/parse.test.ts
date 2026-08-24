@@ -89,6 +89,13 @@ describe("parseProductHtml — JSON-LD with empty offers + embedded JSON price (
     expect(p.sources.price).toBe("embedded:asos");
     expect(classify(p)).toBe("ok");
   });
+
+  it("ignores the recommended product listed first and anchors on the page's own productId", () => {
+    // The fixture puts productId 204770665 at £15.00 ahead of the real product at £110.00.
+    expect(p.priceMinor).not.toBe(1500);
+    expect(p.availability).toBe("in_stock");
+    expect(p.sources.availability).toBe("asos:isInStock");
+  });
 });
 
 describe("parseProductHtml — microdata itemprop price + twitter:image", () => {
@@ -174,5 +181,27 @@ describe("cleanName", () => {
     expect(cleanName("Nike Air Max 90 - White", "www.endclothing.com")).toBe("Nike Air Max 90 - White");
     expect(cleanName("Crew Neck T-Shirt | UNIQLO UK", "www.uniqlo.com")).toBe("Crew Neck T-Shirt");
     expect(cleanName("  Tom&#39;s &amp; Jerry&#39;s   Tee ", "shop.example")).toBe("Tom's & Jerry's Tee");
+  });
+});
+
+describe("availability", () => {
+  it("maps schema.org tokens, escaped or not, and refuses to guess", () => {
+    const html = (avail: string) =>
+      `<html><head><title>Thing | Shop</title><script type="application/ld+json">
+       {"@type":"Product","name":"Thing","offers":{"@type":"Offer","price":10,"priceCurrency":"GBP","availability":${JSON.stringify(avail)}}}
+       </script></head><body>${"x ".repeat(900)}</body></html>`;
+    const av = (a: string) => parseProductHtml(html(a), "https://www.thingshop.example/p/1").availability;
+    expect(av("https://schema.org/InStock")).toBe("in_stock");
+    expect(av("InStock")).toBe("in_stock");
+    expect(av("https://schema.org/OutOfStock")).toBe("out_of_stock");
+    expect(av("SoldOut")).toBe("out_of_stock");
+    expect(av("https://schema.org/LimitedAvailability")).toBe("low_stock");
+    expect(av("PreOrder")).toBe("in_stock");
+    expect(av("SomethingNew")).toBeUndefined();
+  });
+
+  it("leaves availability unset when the page says nothing", () => {
+    const p = parseProductHtml(fixture("og-only.html"), "https://www.uniqlo.com/uk/en/products/E465193-000/00");
+    expect(p.availability).toBeUndefined();
   });
 });

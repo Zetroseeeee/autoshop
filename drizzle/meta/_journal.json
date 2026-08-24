@@ -15,6 +15,13 @@
       "when": 1787530567164,
       "tag": "0001_add_users_and_scope_items",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787575468207,
+      "tag": "0002_stock_and_cart",
+      "breakpoints": true
     }
   ]
 }

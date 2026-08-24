@@ -17,6 +17,7 @@ export function SummaryCard({ items }: { items: Item[] }) {
       <Row label="Items" value={String(s.items)} />
       <Row label="Stores" value={String(s.stores)} />
       <Row label="Unpriced" value={String(s.unpriced)} tone={s.unpriced ? "warn" : undefined} />
+      {s.soldOut ? <Row label="Sold out" value={String(s.soldOut)} tone="bad" /> : null}
       <div className="hairline my-3" />
       <div className="flex items-baseline justify-between">
         <span className="text-[18px] font-bold">Total</span>
@@ -30,11 +31,11 @@ export function SummaryCard({ items }: { items: Item[] }) {
   );
 }
 
-function Row({ label, value, tone }: { label: string; value: string; tone?: "warn" }) {
+function Row({ label, value, tone }: { label: string; value: string; tone?: "warn" | "bad" }) {
   return (
     <div className="flex items-center justify-between py-1">
       <span className="text-[13px] text-grey">{label}</span>
-      <span className={`tabular text-[13px] font-semibold ${tone === "warn" ? "text-amber" : ""}`}>{value}</span>
+      <span className={`tabular text-[13px] font-semibold ${tone === "warn" ? "text-amber" : tone === "bad" ? "text-red" : ""}`}>{value}</span>
     </div>
   );
 }

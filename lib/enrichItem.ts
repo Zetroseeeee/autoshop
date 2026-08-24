@@ -12,7 +12,7 @@ export async function enrichItem(userId: string, itemId: string): Promise<Item |
   const item = await getItem(userId, itemId);
   if (!item) return null;
   try {
-    const result = await enrichUrl(item.url, liveTiers());
+    const result = await enrichUrl(item.url, liveTiers(), item);
     console.log(`[enrich] ${item.store} → ${result.fetchState} via ${result.tiers.join(">")}`, result.sources);
     let updated = await applyEnrichment(item, result);
     if (autoStudioEnabled() && studioConfigured() && updated.sourceImageUrl && !updated.studioImageUrl) {

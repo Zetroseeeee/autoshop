@@ -11,6 +11,7 @@ export const itemCategory = pgEnum("item_category", [
   "other",
 ]);
 export const fetchState = pgEnum("fetch_state", ["pending", "ok", "partial", "failed"]);
+export const stockState = pgEnum("stock_state", ["unknown", "in_stock", "low_stock", "out_of_stock"]);
 
 export const users = pgTable("users", {
   id: text("id")
@@ -56,6 +57,13 @@ export const items = pgTable("items", {
   studioImageUrl: text("studio_image_url"),
   studioBackUrl: text("studio_back_url"),
   fetchState: fetchState("fetch_state").notNull().default("pending"),
+  /** availability as last observed; "unknown" whenever the page gave no usable signal */
+  stockState: stockState("stock_state").notNull().default("unknown"),
+  stockCheckedAt: timestamp("stock_checked_at", { withTimezone: true }),
+  /** e-commerce platform, when detected — enables a real add-to-basket link */
+  platform: text("platform"),
+  /** platform variant id (Shopify), needed to build that link */
+  variantId: text("variant_id"),
   /** set when the daily price check sees a drop */
   previousPriceMinor: integer("previous_price_minor"),
   lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
@@ -93,7 +101,9 @@ export type NewItem = typeof items.$inferInsert;
 export type ItemStatus = Item["status"];
 export type ItemCategory = Item["category"];
 export type FetchState = Item["fetchState"];
+export type StockState = Item["stockState"];
 
 export const ITEM_STATUSES = itemStatus.enumValues;
 export const ITEM_CATEGORIES = itemCategory.enumValues;
 export const FETCH_STATES = fetchState.enumValues;
+export const STOCK_STATES = stockState.enumValues;

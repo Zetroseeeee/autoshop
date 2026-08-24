@@ -7,8 +7,10 @@ import { runStores, totalMinor, type StoreGroup } from "@/lib/basket";
 import { formatMinor } from "@/lib/money";
 import type { Item } from "@/lib/schema";
 import { AppHeader } from "./AppHeader";
+import { CartButtons } from "./CartButtons";
 import { EmptyState } from "./EmptyState";
 import { Favicon, Thumb } from "./Thumb";
+import { StockChip } from "./StockChip";
 import { useToast } from "./Toast";
 import { useStoreLinks } from "./useStoreLinks";
 import { CheckIcon, Spinner } from "./icons";
@@ -120,7 +122,10 @@ function StoreCard({ group, busy, onOrdered, onSkip }: { group: StoreGroup; busy
               <Thumb item={it} size={44} />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[13px] font-semibold">{it.name || it.url}</p>
-                {it.brand ? <p className="truncate text-[11px] text-grey-light">{it.brand}</p> : null}
+                <div className="flex items-center gap-2">
+                  {it.brand ? <p className="truncate text-[11px] text-grey-light">{it.brand}</p> : null}
+                  <StockChip state={it.stockState} checkedAt={it.stockCheckedAt} />
+                </div>
               </div>
               <div className="text-right">
                 <p className="tabular text-[13px] font-bold">{it.priceMinor != null ? formatMinor(it.priceMinor, it.currency) : <span className="text-grey">No price</span>}</p>
@@ -142,13 +147,14 @@ function StoreCard({ group, busy, onOrdered, onSkip }: { group: StoreGroup; busy
         ) : null}
         <div className="hairline" />
 
-        <div className="flex items-center gap-4 pt-1">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1">
           <button type="button" className="btn-text" onClick={openAll}>
             Open all
           </button>
           <button type="button" className="btn-text" onClick={() => void copyLinks()}>
             Copy links
           </button>
+          <CartButtons items={group.items} />
         </div>
       </section>
 

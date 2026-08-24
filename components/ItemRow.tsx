@@ -7,6 +7,7 @@ import { slugWords } from "@/lib/url";
 import { ItemEditor } from "./ItemEditor";
 import { QtyStepper } from "./QtyStepper";
 import { StatusChip } from "./StatusChip";
+import { StockChip } from "./StockChip";
 import { Thumb } from "./Thumb";
 
 export interface RowActions {
@@ -30,12 +31,13 @@ export function ItemRow({
   actions: RowActions;
 }) {
   const done = item.status !== "want";
+  const soldOut = item.stockState === "out_of_stock";
   const pending = item.fetchState === "pending";
   const title = item.name || (pending ? "Fetching details…" : slugWords(item.url) || item.store);
 
   return (
     <li className="py-3">
-      <div className={`flex items-start gap-3 ${done ? "opacity-60" : ""}`}>
+      <div className={`flex items-start gap-3 ${done || soldOut ? "opacity-60" : ""}`}>
         <button type="button" onClick={onToggle} className="flex-none" aria-label="Edit item">
           <Thumb item={item} size={64} />
         </button>
@@ -99,6 +101,7 @@ function Price({ item, onAddPrice }: { item: Item; onAddPrice: () => void }) {
           was <s className="tabular">{formatMinor(item.previousPriceMinor, item.currency)}</s>
         </span>
       ) : null}
+      <StockChip state={item.stockState} checkedAt={item.stockCheckedAt} />
       {!isGbp(item) ? (
         <span className="chip chip-ordered" title="Not included in the GBP total">
           other currency

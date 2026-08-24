@@ -35,6 +35,8 @@ export interface BasketSummary {
   excludedDone: number;
   /** items not counted because they are priced in another currency */
   excludedNonGbp: number;
+  /** items last seen as unavailable — still counted, but worth flagging */
+  soldOut: number;
 }
 
 export function summarise(list: Item[]): BasketSummary {
@@ -45,6 +47,7 @@ export function summarise(list: Item[]): BasketSummary {
     totalMinor: totalMinor(list),
     excludedDone: list.filter((i) => i.status !== "want" && isPriced(i) && isGbp(i)).length,
     excludedNonGbp: list.filter((i) => i.status === "want" && isPriced(i) && !isGbp(i)).length,
+    soldOut: list.filter((i) => i.status === "want" && i.stockState === "out_of_stock").length,
   };
 }
 

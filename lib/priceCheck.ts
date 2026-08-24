@@ -1,6 +1,6 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "./db";
-import { tier1 } from "./enrich";
+import { decideStock, tier1 } from "./enrich";
 import { items, type Item } from "./schema";
 
 /**
@@ -15,6 +15,9 @@ export interface PriceCheckSummary {
   unchanged: number;
   noPrice: number;
   errors: number;
+  /** items that became unavailable since the last check */
+  wentOutOfStock: number;
+  backInStock: number;
 }
 
 const BATCH = 40;
@@ -28,7 +31,7 @@ export async function runPriceCheck(): Promise<PriceCheckSummary> {
     .orderBy(sql`${items.lastCheckedAt} asc nulls first`, asc(items.createdAt))
     .limit(BATCH);
 
-  const summary: PriceCheckSummary = { checked: 0, drops: 0, rises: 0, unchanged: 0, noPrice: 0, errors: 0 };
+  const summary: PriceCheckSummary = { checked: 0, drops: 0, rises: 0, unchanged: 0, noPrice: 0, errors: 0, wentOutOfStock: 0, backInStock: 0 };
   const queue = [...batch];
   const workers = Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
     while (queue.length) {
@@ -49,6 +52,19 @@ async function checkOne(item: Item, summary: PriceCheckSummary): Promise<void> {
   const parsed = await tier1(item.url);
   summary.checked++;
   const now = new Date();
+
+  // Stock first — a listing can sell out while its price still parses fine.
+  const stock = decideStock(parsed, item);
+  if (stock !== "unknown" && stock !== item.stockState) {
+    if (stock === "out_of_stock") summary.wentOutOfStock++;
+    else if (item.stockState === "out_of_stock") summary.backInStock++;
+  }
+  if (stock !== "unknown") {
+    await db
+      .update(items)
+      .set({ stockState: stock, stockCheckedAt: now })
+      .where(and(eq(items.id, item.id), eq(items.userId, item.userId)));
+  }
   const found = parsed.priceMinor;
   const sameCurrency = !item.currency || !parsed.currency || parsed.currency === item.currency;
 

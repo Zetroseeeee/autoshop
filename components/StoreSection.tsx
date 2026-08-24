@@ -3,6 +3,7 @@
 import { totalMinor } from "@/lib/basket";
 import { formatMinor } from "@/lib/money";
 import type { Item } from "@/lib/schema";
+import { CartButtons } from "./CartButtons";
 import { ItemRow, type RowActions } from "./ItemRow";
 import { Favicon } from "./Thumb";
 import { useStoreLinks } from "./useStoreLinks";
@@ -41,13 +42,14 @@ export function StoreSection({
         ))}
       </ul>
 
-      <footer className="flex items-center gap-4 border-t border-hairline pt-1">
+      <footer className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-hairline pt-1">
         <button type="button" className="btn-text" onClick={openAll}>
           Open all
         </button>
         <button type="button" className="btn-text" onClick={() => void copyLinks()}>
           Copy links
         </button>
+        <CartButtons items={items} />
       </footer>
     </section>
   );

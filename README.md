@@ -96,6 +96,31 @@ The same steps are shown on `/settings` with your real `APP_URL` filled in.
 
 Result → `fetchState`: `ok` (name+price+image) / `partial` / `failed` ("Fetch failed — fill manually", editor opens). Maintain the host lists at the top of `lib/enrich.ts`.
 
+## Stock checks (`lib/parse.ts` → `lib/enrich.ts`)
+
+Every fetch records availability, and the daily cron re-checks it — so an item that sells out shows a red **Sold out** chip without you opening anything.
+
+Generic rule: schema.org `offers.availability` (`InStock`/`OutOfStock`/`SoldOut`/`LimitedAvailability`/…), then `product:availability` / `og:availability` / `[itemprop=availability]`. Store-specific rules exist only where the generic one cannot work:
+
+| Store | Signal |
+| --- | --- |
+| **Vinted** | A sold listing returns HTTP 200 with a live-looking price and simply drops its JSON-LD, so it is invisible to the generic rule. Read `can_buy` from the RSC flight payload (`self.__next_f.push`). Never match the bare word "Sold" — every page inlines an i18n dictionary containing it. |
+| **ASOS** | JSON-LD `offers` is `{}`. Stock comes from the embedded `stockPriceResponse`, anchored on the `/prd/{id}` in the URL — that array also covers the recommendation carousel. |
+| **Shopify** | Per-variant `offers[].availability`; parse the JSON, since some themes escape the slashes (`https:\/\/schema.org\/OutOfStock`). |
+| **Uniqlo** | **No signal in the server HTML** — the one `"sales":true` flag describes an arbitrary representative size and would claim "in stock" for a fully sold-out product. Reports `unknown` rather than guessing. |
+
+No signal means `unknown`, and `unknown` renders as no chip. Availability is never inferred from a price being present — sold Vinted items and sold-out ASOS sizes both still show one. A fetch that fails, hits a bot wall, or returns an app shell never marks anything sold.
+
+## Basket deep links (`lib/cart.ts`)
+
+| Store | What the button does |
+| --- | --- |
+| Shopify stores | **Adds the item** via a cart permalink `/(cart)/{variant}:{qty}?storefront=true`. `storefront=true` is mandatory — without it Shopify drops the shopper straight into checkout, and this app never routes anyone to a payment step. |
+| ASOS, Uniqlo, END., Zara, H&M, eBay, Selfridges, JD, SSENSE, … | **Opens their basket page.** None of them expose an add-to-basket URL: ASOS ignores query params on `/bag`, Uniqlo requires an authenticated `POST /baskets/mine/l2s`, and END.'s legacy Magento add route returns 403. The button says "Open basket" so the difference is never oversold. |
+| Vinted, Depop, Grailed | Nothing — marketplaces have no basket; you buy the single listing. |
+
+Cart permalinks do **not** check stock (a sold-out variant still adds), so the buttons skip items last seen as unavailable.
+
 ## Studio packshots (`lib/studio.ts`)
 
 "Studio photo" on an item, "Generate all missing" on the basket, or automatically after fetch with `AUTO_STUDIO=true`. Checks the monthly cap (`studio_usage` vs `STUDIO_MONTHLY_CAP`, default 200) → downloads the source image (normalised to a ≤1280 px JPEG with sharp) → Gemini image model with the packshot prompt → PNG to Vercel Blob → `studioImageUrl`.
