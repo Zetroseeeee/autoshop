@@ -25,7 +25,9 @@ One addition to the Tier 1 parser worth knowing about: after JSON-LD â†’ meta â†
 
 ## Local development
 
-Prerequisites: Node 20+, a Postgres you can reach (local or a Neon dev branch), and optionally Google Chrome (auto-detected for Tier 2 rendering on macOS/Linux).
+Prerequisites: Node 20+, a Postgres you can reach, and optionally Google Chrome (auto-detected for Tier 2 rendering on macOS/Linux).
+
+> **Point `DATABASE_URL` at a dev database, not production.** The app has no separate test mode, so running the dev server against the live Neon URL writes real accounts and items into it. Use a local Postgres or a [Neon branch](https://neon.com/docs/introduction/branching).
 
 ```bash
 cp .env.example .env.local   # fill in DATABASE_URL and AUTH_SECRET at minimum
