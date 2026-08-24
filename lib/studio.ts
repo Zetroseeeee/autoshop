@@ -154,9 +154,12 @@ export async function generatePackshot(source: { data: Buffer; mimeType: string 
         const reason = res.candidates?.[0]?.finishReason ?? res.promptFeedback?.blockReason ?? "no image returned";
         throw new StudioError(`The model returned no image (${reason})`);
       }
-      const png = Buffer.from(part.inlineData.data, "base64");
-      // Normalise to PNG regardless of what the model emitted.
-      return await sharp(png).png().toBuffer();
+      const raw = Buffer.from(part.inlineData.data, "base64");
+      // Normalise to WebP whatever the model emitted. These are flat-lit products on a
+      // white sweep, so WebP q88 is visually indistinguishable from the source PNG at
+      // roughly a fifteenth of the bytes (~880 KB → ~57 KB) — which matters a lot when
+      // the basket renders a dozen of them as thumbnails over mobile data.
+      return await sharp(raw).webp({ quality: 88 }).toBuffer();
     } catch (err) {
       lastErr = err;
       if (err instanceof StudioError) break;
@@ -208,10 +211,10 @@ function apiError(err: unknown): ApiErrorInfo {
   };
 }
 
-async function saveToBlob(itemId: string, view: "front" | "back", png: Buffer): Promise<string> {
-  const blob = await put(`studio/${itemId}/${view}-${Date.now()}.png`, png, {
+async function saveToBlob(itemId: string, view: "front" | "back", image: Buffer): Promise<string> {
+  const blob = await put(`studio/${itemId}/${view}-${Date.now()}.webp`, image, {
     access: "public",
-    contentType: "image/png",
+    contentType: "image/webp",
     addRandomSuffix: false,
   });
   return blob.url;

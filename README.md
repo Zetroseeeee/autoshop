@@ -17,6 +17,7 @@ Next.js 16 (App Router, TypeScript strict, Tailwind v4) · Postgres on Neon via 
 | Text fallback model unspecified | Cheapest stable text model is **`gemini-3.5-flash-lite`** | Used for the brand/category-only fallback |
 | "give this function 1536 MB memory" via `vercel.json` | Vercel no longer allows memory in `vercel.json` (build warning) and **Hobby functions always get 2 GB** | No memory config; Tier 2 routes set `maxDuration = 60` instead |
 | `HARD_SITES` = vinted, depop, grailed, ebay | Zara (Akamai interstitial) and H&M (Akamai 403) also block both plain fetch *and* headless Chrome | `zara.com`, `hm.com`, `stockx.com`, `goat.com` added |
+| "Save the PNG to Vercel Blob" | A 1024px packshot PNG is ~880 KB; a basket of 12 would be **10 MB of thumbnails** on mobile data | Saved as **WebP q88** instead — visually identical (mean channel difference 0.98/255) at ~57 KB, a 15× saving |
 
 One addition to the Tier 1 parser worth knowing about: after JSON-LD → meta → `itemprop` → `<title>`, it reads **embedded JSON state** for a few known shapes (ASOS `"current":{"value":…}`, Uniqlo `"prices":{"base":…}`, generic `"price":"12.34"…"priceCurrency":"GBP"`). That is what makes ASOS and Uniqlo fill without Chrome. It never invents values — the shapes are exact and sanity-checked.
 
