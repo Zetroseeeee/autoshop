@@ -1,6 +1,8 @@
 # Basket
 
-Personal multi-store shopping basket. Paste product links from any store; the app scrapes name, brand, price and photo server-side, can re-shoot every item as a uniform AI **studio packshot** on white, groups everything by store with GBP totals, and walks you through a store-by-store **checkout run** (open the store, buy there, mark ordered, next). Installs as a PWA; on iPhone an **Add to Basket** Shortcut sits in the share sheet.
+Multi-store shopping basket. Paste product links from any store; the app scrapes name, brand, price and photo server-side, re-shoots every item as a uniform AI **studio packshot** on white, groups everything by store with GBP totals, and walks you through a store-by-store **checkout run** (open the store, buy there, mark ordered, next). Installs as a PWA; on iPhone an **Add to Basket** Shortcut sits in the share sheet.
+
+Each person signs up with an email and password and gets their own private basket — a new account starts empty, and no account can see or touch another's items.
 
 **Hard rule:** no payments, card details or checkout ever happen inside this app. Checkout means opening the store's own site.
 
@@ -26,7 +28,7 @@ One addition to the Tier 1 parser worth knowing about: after JSON-LD → meta �
 Prerequisites: Node 20+, a Postgres you can reach (local or a Neon dev branch), and optionally Google Chrome (auto-detected for Tier 2 rendering on macOS/Linux).
 
 ```bash
-cp .env.example .env.local   # fill in DATABASE_URL and ACCESS_CODE at minimum
+cp .env.example .env.local   # fill in DATABASE_URL and AUTH_SECRET at minimum
 npm install
 npm run db:migrate           # applies drizzle/ migrations
 npm run dev                  # http://localhost:3000
@@ -38,7 +40,7 @@ Scripts: `dev`, `build`, `start`, `lint`, `typecheck`, `test`, `db:generate` (ne
 
 ## Environment variables
 
-See [`.env.example`](.env.example) — every key is documented there. Required: `DATABASE_URL`, `ACCESS_CODE`, `APP_URL`. For studio photos: `GEMINI_API_KEY` + `BLOB_READ_WRITE_TOKEN`. Optional: `SCRAPER_API_KEY`, `AUTO_STUDIO`, `STUDIO_MONTHLY_CAP`, `BACK_VIEW`, `CRON_SECRET`, `CHROME_EXECUTABLE_PATH` (local only).
+See [`.env.example`](.env.example) — every key is documented there. Required: `DATABASE_URL`, `AUTH_SECRET`. Optional but recommended: `AUTO_STUDIO=true`. For studio photos: `GEMINI_API_KEY` + `BLOB_READ_WRITE_TOKEN`. Optional: `APP_URL`, `SCRAPER_API_KEY`, `STUDIO_MONTHLY_CAP`, `BACK_VIEW`, `CRON_SECRET`, `CHROME_EXECUTABLE_PATH` (local only).
 
 `/settings` shows which keys are present (booleans only).
 
@@ -48,7 +50,7 @@ See [`.env.example`](.env.example) — every key is documented there. Required: 
 2. **Database:** create a Neon project (or use Vercel's Neon integration). Set `DATABASE_URL` to the **pooled** connection string (`…-pooler.…neon.tech/…?sslmode=verify-full`).
 3. **Blob:** Storage → Create → Blob. Vercel adds `BLOB_READ_WRITE_TOKEN` automatically.
 4. **Gemini:** create a key in Google AI Studio → `GEMINI_API_KEY`. **Enable billing** on that key's Google Cloud project — the image models have a free-tier limit of 0, so studio photos fail with `429 RESOURCE_EXHAUSTED` on an unbilled key (the brand/category text fallback works either way).
-5. Set `ACCESS_CODE` (digits — the unlock screen is a numeric keypad), `APP_URL` (e.g. `https://basket-emile.vercel.app`), and any optional keys.
+5. Set `AUTH_SECRET` (`node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`), and any optional keys. `APP_URL` is optional — the app uses the origin the request arrived on.
 6. Deploy. Open the URL → passcode screen → unlock. Add to Home Screen on iOS; "Install app" on Android/desktop Chrome.
 
 Tier 2 (rendered fetch) uses `@sparticuz/chromium` on Vercel automatically; it needs no config. If you ever see Chromium download/extract errors in function logs, the route still degrades to the Tier 1 result — nothing breaks.
@@ -56,11 +58,13 @@ Tier 2 (rendered fetch) uses `@sparticuz/chromium` on Vercel automatically; it n
 ## Adding items
 
 - **Paste bar** on `/` (pasting a link adds it immediately; several links at once work too).
-- **`/api/quick-add?code=<ACCESS_CODE>&url=<link>`** (GET or POST; JSON when `Accept: application/json`, otherwise 302 → `/`). Lightly rate-limited; 401 on a bad code.
+- **`/api/quick-add?token=<your token>&url=<link>`** (GET or POST; JSON when `Accept: application/json`, otherwise 302 → `/`). The token is personal, shown on `/settings`, and grants **add-only** access to that one basket — it cannot read, edit or delete. Rate-limited; 401 on a bad token.
 - **Share sheet on Android / desktop Chrome:** the PWA manifest declares a `share_target` → `/share` → quick-add.
 - **iPhone:** iOS Safari has no share-target support, so build the Shortcut below once.
 
 ### iOS Shortcut — "Add to Basket"
+
+`/settings` shows these steps with your real URL **and your personal token already filled in** — copy from there rather than from here.
 
 1. Open **Shortcuts**, tap **+**.
 2. Tap the name at the top → **Rename** → `Add to Basket`.
@@ -68,7 +72,7 @@ Tier 2 (rendered fetch) uses `@sparticuz/chromium` on Vercel automatically; it n
 4. Add action **Get URLs from Input**; input = **Shortcut Input**.
 5. Add action **Text** with (replace `YOUR-CODE` with your passcode, and keep `APP_URL` as your deployment):
    ```
-   https://APP_URL/api/quick-add?code=YOUR-CODE&url=
+   https://APP_URL/api/quick-add?token=YOUR-TOKEN&url=
    ```
    then insert the **URLs** variable at the end so the link is appended.
 6. Add action **Get Contents of URL**: URL = the **Text** variable; Show More → Method **GET**; Headers: `Accept` = `application/json`.
