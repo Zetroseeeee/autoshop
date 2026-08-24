@@ -138,9 +138,25 @@ export function passwordProblem(raw: unknown): string | null {
   return null;
 }
 
-/** Only allow same-origin relative paths as post-login redirect targets. */
+/**
+ * Only allow same-origin relative paths as post-login redirect targets.
+ *
+ * Prefix checks alone are not enough: browsers strip tabs and newlines from URLs,
+ * so "/\t/evil.com" parses as "//evil.com" — a different origin. Resolve against a
+ * sentinel origin and require the result to stay on it.
+ */
 export function safeNextPath(next: string | null | undefined): string {
-  if (!next || !next.startsWith("/") || next.startsWith("//") || next.startsWith("/\\")) return "/";
-  if (next.startsWith("/login") || next.startsWith("/signup")) return "/";
-  return next;
+  if (!next || !next.startsWith("/")) return "/";
+  if (/[\u0000-\u001F\u007F]/.test(next)) return "/";
+  const SENTINEL = "http://basket.invalid";
+  let resolved: URL;
+  try {
+    resolved = new URL(next, SENTINEL);
+  } catch {
+    return "/";
+  }
+  if (resolved.origin !== SENTINEL) return "/";
+  const path = resolved.pathname + resolved.search;
+  if (path.startsWith("/login") || path.startsWith("/signup")) return "/";
+  return path;
 }

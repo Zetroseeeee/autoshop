@@ -13,6 +13,10 @@ export async function POST(req: NextRequest) {
     }
     const body = (await req.json().catch(() => ({}))) as { email?: unknown; password?: unknown };
     const email = normaliseEmail(body.email);
+    // Also throttle per account, so a distributed attacker cannot grind one inbox.
+    if (email && !rateLimit(`login-email:${email}`, 10, 15 * 60_000)) {
+      return NextResponse.json({ error: "Too many attempts for that account — wait a few minutes." }, { status: 429 });
+    }
     const password = typeof body.password === "string" ? body.password : "";
     // Deliberately vague: never reveal whether the email exists.
     const invalid = NextResponse.json({ error: "Wrong email or password" }, { status: 401 });

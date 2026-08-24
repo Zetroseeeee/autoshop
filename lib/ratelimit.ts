@@ -21,8 +21,21 @@ export function rateLimit(key: string, limit: number, windowMs: number): boolean
   return true;
 }
 
+/**
+ * The caller's address, for rate-limit bucketing.
+ *
+ * `x-forwarded-for` is client-supplied and its leftmost entry is trivially
+ * spoofed, so a rotating header would hand out a fresh bucket per request.
+ * Prefer the header the platform sets itself; otherwise take the RIGHTMOST
+ * forwarded entry, which is the one appended by the proxy closest to us.
+ */
 export function clientIp(req: Request): string {
+  const trusted = req.headers.get("x-vercel-forwarded-for") ?? req.headers.get("cf-connecting-ip");
+  if (trusted) return trusted.split(",")[0]!.trim();
   const fwd = req.headers.get("x-forwarded-for");
-  if (fwd) return fwd.split(",")[0]!.trim();
+  if (fwd) {
+    const hops = fwd.split(",").map((h) => h.trim()).filter(Boolean);
+    if (hops.length) return hops[hops.length - 1]!;
+  }
   return req.headers.get("x-real-ip") ?? "local";
 }

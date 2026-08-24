@@ -2,6 +2,7 @@ import { put } from "@vercel/blob";
 import { and, eq, sql } from "drizzle-orm";
 import sharp from "sharp";
 import { db } from "./db";
+import { safeFetch } from "./egress";
 import { PAGE_HEADERS } from "./fetchPage";
 import { GEMINI_IMAGE_MODELS, gemini, geminiConfigured } from "./gemini";
 import { getItem, updateItem } from "./items";
@@ -115,22 +116,24 @@ const CATEGORY_NOUN: Record<ItemCategory, string> = {
 const MAX_SOURCE_BYTES = 20 * 1024 * 1024;
 
 export async function downloadSourceImage(url: string, referer?: string): Promise<{ data: Buffer; mimeType: string }> {
+  // One message for every failure mode on purpose: distinguishable errors here
+  // would let a user probe which internal hosts and ports exist.
+  const failed = new StudioError("Couldn't download the source image");
   let res: Response;
   try {
-    res = await fetch(url, {
+    res = await safeFetch(url, {
       headers: { ...PAGE_HEADERS, accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8", ...(referer ? { referer } : {}) },
-      signal: AbortSignal.timeout(15_000),
-      cache: "no-store",
+      timeoutMs: 15_000,
     });
   } catch {
-    throw new StudioError("Couldn't download the source image");
+    throw failed;
   }
-  if (!res.ok) throw new StudioError(`Couldn't download the source image (${res.status})`);
+  if (!res.ok) throw failed;
   const len = Number(res.headers.get("content-length") ?? 0);
   if (len > MAX_SOURCE_BYTES) throw new StudioError("Source image is too large");
   const raw = Buffer.from(await res.arrayBuffer());
   if (raw.byteLength > MAX_SOURCE_BYTES) throw new StudioError("Source image is too large");
-  if (raw.byteLength < 100) throw new StudioError("Source image is empty");
+  if (raw.byteLength < 100) throw failed;
   // Normalise whatever the CDN sent (webp/avif/png/jpeg/gif) into a bounded JPEG the model accepts.
   try {
     const data = await sharp(raw, { animated: false })
@@ -141,7 +144,7 @@ export async function downloadSourceImage(url: string, referer?: string): Promis
       .toBuffer();
     return { data, mimeType: "image/jpeg" };
   } catch {
-    throw new StudioError("Source image format isn't supported");
+    throw failed;
   }
 }
 

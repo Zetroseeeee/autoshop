@@ -1,3 +1,4 @@
+import { verifyPublicUrl } from "./egress";
 import { MOBILE_UA, type FetchedPage } from "./fetchPage";
 
 /**
@@ -52,6 +53,8 @@ export async function renderHtml(url: string, opts: RenderOptions = {}): Promise
   const settleMs = opts.settleMs ?? 2_000;
   let browser: import("playwright-core").Browser | undefined;
   try {
+    // Defence in depth: a real browser would happily load an internal address.
+    await verifyPublicUrl(url);
     const { chromium: pw } = await import("playwright-core");
     const { executablePath, args } = await resolveBrowser();
     browser = await pw.launch({

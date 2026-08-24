@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { addFromParams } from "@/lib/quickAdd";
+import { addFromParams, isCrossSiteRequest } from "@/lib/quickAdd";
 import { currentUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -7,6 +7,10 @@ export const maxDuration = 90;
 
 /** PWA share_target (GET). Session-protected by the proxy, so no token is needed. */
 export async function GET(req: NextRequest) {
+  // Share targets are opened by the OS/browser, never by another site's page.
+  if (isCrossSiteRequest(req)) {
+    return NextResponse.redirect(new URL("/", req.nextUrl.origin), 302);
+  }
   const user = await currentUser();
   if (!user) {
     const url = req.nextUrl.clone();

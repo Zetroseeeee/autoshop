@@ -1,4 +1,5 @@
-/** Tier 1 — direct fetch with a realistic mobile Safari identity. */
+/** Tier 1 — direct fetch with a realistic mobile Safari identity, through the egress guard. */
+import { safeFetch } from "./egress";
 
 export const MOBILE_UA =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
@@ -23,12 +24,7 @@ const MAX_BYTES = 5 * 1024 * 1024;
 
 export async function fetchHtml(url: string, timeoutMs = 8000): Promise<FetchedPage | null> {
   try {
-    const res = await fetch(url, {
-      headers: PAGE_HEADERS,
-      redirect: "follow",
-      signal: AbortSignal.timeout(timeoutMs),
-      cache: "no-store",
-    });
+    const res = await safeFetch(url, { headers: PAGE_HEADERS, timeoutMs });
     const type = res.headers.get("content-type") ?? "";
     if (type && !/html|xml|text\/plain|octet-stream/i.test(type) && res.ok) {
       // e.g. a direct image / PDF link — nothing to parse

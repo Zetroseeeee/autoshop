@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { addFromParams, wantsJson } from "@/lib/quickAdd";
+import { addFromParams, isCrossSiteRequest, wantsJson } from "@/lib/quickAdd";
 import { clientIp, rateLimit } from "@/lib/ratelimit";
 import { currentUser } from "@/lib/session";
 import { findUserByQuickAddToken } from "@/lib/users";
@@ -41,6 +41,10 @@ async function handle(req: NextRequest, params: Record<string, string>) {
   }
 
   const token = (params.token ?? params.code ?? "").trim();
+  // The token path is explicit and safe cross-site; the cookie path is not.
+  if (!token && isCrossSiteRequest(req)) {
+    return NextResponse.json({ error: "Unauthorised — supply your quick-add token" }, { status: 401 });
+  }
   const user = token ? await findUserByQuickAddToken(token) : await currentUser();
   if (!user) {
     return NextResponse.json({ error: "Unauthorised — bad or missing token" }, { status: 401 });
