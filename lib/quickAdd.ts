@@ -5,11 +5,11 @@ import type { Item } from "./schema";
 import { extractUrl } from "./url";
 
 /** Shared by /api/quick-add and /share: find a link in the provided params and add it. */
-export async function addFromParams(params: { url?: string | null; text?: string | null; title?: string | null }): Promise<Item | null> {
+export async function addFromParams(userId: string, params: { url?: string | null; text?: string | null; title?: string | null }): Promise<Item | null> {
   const link = extractUrl(params.url) ?? extractUrl(params.text) ?? extractUrl(params.title);
   if (!link) return null;
-  const item = await createItem(link);
-  if (item) after(() => enrichItem(item.id));
+  const item = await createItem(userId, link);
+  if (item) after(() => enrichItem(userId, item.id));
   return item;
 }
 

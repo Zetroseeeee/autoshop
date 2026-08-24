@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { guessCategory } from "./category";
 import { db } from "./db";
 import { fetchHtml } from "./fetchPage";
@@ -148,7 +148,7 @@ export async function applyEnrichment(item: Item, r: EnrichResult): Promise<Item
       fetchState: r.fetchState,
       lastCheckedAt: new Date(),
     })
-    .where(eq(items.id, item.id))
+    .where(and(eq(items.id, item.id), eq(items.userId, item.userId)))
     .returning();
   return updated ?? item;
 }

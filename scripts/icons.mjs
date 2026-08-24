@@ -1,5 +1,5 @@
 /* Generates the monochrome shopping-bag PWA icons. Run: node scripts/icons.mjs */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import sharp from "sharp";
 
 const INK = "#111114";

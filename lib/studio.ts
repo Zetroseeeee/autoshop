@@ -1,5 +1,5 @@
 import { put } from "@vercel/blob";
-import { sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import sharp from "sharp";
 import { db } from "./db";
 import { PAGE_HEADERS } from "./fetchPage";
@@ -37,16 +37,23 @@ export function currentMonth(now = new Date()): string {
   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
-export async function studioUsageThisMonth(): Promise<number> {
-  const [row] = await db.select({ count: studioUsage.count }).from(studioUsage).where(sql`${studioUsage.month} = ${currentMonth()}`).limit(1);
+export async function studioUsageThisMonth(userId: string): Promise<number> {
+  const [row] = await db
+    .select({ count: studioUsage.count })
+    .from(studioUsage)
+    .where(and(eq(studioUsage.userId, userId), eq(studioUsage.month, currentMonth())))
+    .limit(1);
   return row?.count ?? 0;
 }
 
-async function incrementUsage(): Promise<void> {
+async function incrementUsage(userId: string): Promise<void> {
   await db
     .insert(studioUsage)
-    .values({ month: currentMonth(), count: 1 })
-    .onConflictDoUpdate({ target: studioUsage.month, set: { count: sql`${studioUsage.count} + 1` } });
+    .values({ userId, month: currentMonth(), count: 1 })
+    .onConflictDoUpdate({
+      target: [studioUsage.userId, studioUsage.month],
+      set: { count: sql`${studioUsage.count} + 1` },
+    });
 }
 
 // ---- prompt -----------------------------------------------------------------
@@ -227,14 +234,14 @@ export interface StudioOutcome {
 }
 
 /** Generate (or regenerate) the studio packshot for an item. */
-export async function generateStudio(itemId: string): Promise<StudioOutcome> {
-  const item = await getItem(itemId);
+export async function generateStudio(userId: string, itemId: string): Promise<StudioOutcome> {
+  const item = await getItem(userId, itemId);
   if (!item) throw new StudioError("Item not found");
   if (!studioConfigured()) return { item, message: "Studio photos need GEMINI_API_KEY and BLOB_READ_WRITE_TOKEN — see Settings" };
   if (!item.sourceImageUrl) return { item, message: "Add an image URL first, then try Studio photo" };
 
   const cap = studioCap();
-  const used = await studioUsageThisMonth();
+  const used = await studioUsageThisMonth(userId);
   const needed = backViewEnabled() ? 2 : 1;
   if (used + needed > cap) {
     return { item, message: `Studio cap reached — ${used} of ${cap} generations used this month. It resets on the 1st.` };
@@ -245,15 +252,15 @@ export async function generateStudio(itemId: string): Promise<StudioOutcome> {
   const subject: StudioSubject = { category: item.category, name: item.name, brand: item.brand };
   const front = await generatePackshot(source, studioPrompt(subject, "front"));
   const frontUrl = await saveToBlob(item.id, "front", front);
-  await incrementUsage();
-  let updated = (await updateItem(item.id, { studioImageUrl: frontUrl })) ?? item;
+  await incrementUsage(userId);
+  let updated = (await updateItem(userId, item.id, { studioImageUrl: frontUrl })) ?? item;
 
   if (backViewEnabled()) {
     try {
       const back = await generatePackshot(source, studioPrompt(subject, "back"));
       const backUrl = await saveToBlob(item.id, "back", back);
-      await incrementUsage();
-      updated = (await updateItem(item.id, { studioBackUrl: backUrl })) ?? updated;
+      await incrementUsage(userId);
+      updated = (await updateItem(userId, item.id, { studioBackUrl: backUrl })) ?? updated;
     } catch (err) {
       // the front shot is already saved — the back view is best-effort
       console.warn("[studio] back view failed:", err instanceof Error ? err.message : err);

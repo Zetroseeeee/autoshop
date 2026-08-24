@@ -3,18 +3,22 @@ import { db } from "@/lib/db";
 import { listItems } from "@/lib/items";
 import { items, type NewItem } from "@/lib/schema";
 import { normaliseUrl, storeOf } from "@/lib/url";
+import { requireUser } from "@/lib/session";
 import { BadRequest, errorResponse, parseItemPatch } from "@/lib/validate";
 
 export const dynamic = "force-dynamic";
 
 /** Import a previous JSON export. Items whose URL is already in the basket are skipped. */
 export async function POST(req: NextRequest) {
+  const auth = await requireUser();
+  if ("response" in auth) return auth.response;
+  const userId = auth.user.id;
   try {
     const body = (await req.json().catch(() => null)) as { items?: unknown } | null;
     if (!body || !Array.isArray(body.items)) throw new BadRequest("Expected a Basket export with an items array");
     if (body.items.length > 2000) throw new BadRequest("That file has too many items");
 
-    const existing = new Set((await listItems()).map((i) => i.url));
+    const existing = new Set((await listItems(userId)).map((i) => i.url));
     const rows: NewItem[] = [];
     let skipped = 0;
     for (const raw of body.items) {
@@ -31,6 +35,7 @@ export async function POST(req: NextRequest) {
       existing.add(url);
       const patch = safePatch(r);
       rows.push({
+        userId,
         url,
         store: storeOf(url),
         name: patch.name ?? "",

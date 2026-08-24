@@ -13,12 +13,12 @@ export function LockButton() {
       disabled={busy}
       onClick={async () => {
         setBusy(true);
-        await fetch("/api/unlock", { method: "DELETE" }).catch(() => undefined);
-        router.replace("/unlock");
+        await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
+        router.replace("/login");
         router.refresh();
       }}
     >
-      Lock this device
+      Sign out
     </button>
   );
 }

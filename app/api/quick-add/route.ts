@@ -1,15 +1,18 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { codeMatches } from "@/lib/auth";
 import { addFromParams, wantsJson } from "@/lib/quickAdd";
 import { clientIp, rateLimit } from "@/lib/ratelimit";
+import { currentUser } from "@/lib/session";
+import { findUserByQuickAddToken } from "@/lib/users";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 90;
 
 /**
- * GET or POST /api/quick-add?code=<ACCESS_CODE>&url=<link>
- * Authenticates with the code (for the iOS Shortcut), not the cookie.
- * Responds 302 → / for browsers, JSON when `Accept: application/json`.
+ * GET or POST /api/quick-add?token=<your token>&url=<link>
+ *
+ * Authenticates with the user's personal quick-add token (this is what the iOS
+ * Shortcut uses), or with an existing session cookie. `code=` is accepted as an
+ * alias so Shortcuts built before accounts existed keep working.
  */
 export async function GET(req: NextRequest) {
   return handle(req, Object.fromEntries(req.nextUrl.searchParams));
@@ -33,13 +36,17 @@ export async function POST(req: NextRequest) {
 }
 
 async function handle(req: NextRequest, params: Record<string, string>) {
-  if (!rateLimit(`quick-add:${clientIp(req)}`, 20, 60_000)) {
+  if (!rateLimit(`quick-add:${clientIp(req)}`, 30, 60_000)) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429 });
   }
-  if (!codeMatches(params.code)) {
-    return NextResponse.json({ error: "Unauthorised — bad or missing code" }, { status: 401 });
+
+  const token = (params.token ?? params.code ?? "").trim();
+  const user = token ? await findUserByQuickAddToken(token) : await currentUser();
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorised — bad or missing token" }, { status: 401 });
   }
-  const item = await addFromParams(params);
+
+  const item = await addFromParams(user.id, params);
   if (!item) {
     if (wantsJson(req)) return NextResponse.json({ error: "No link found in url/text/title" }, { status: 400 });
     return NextResponse.redirect(new URL("/?notice=nolink", req.nextUrl.origin), 302);

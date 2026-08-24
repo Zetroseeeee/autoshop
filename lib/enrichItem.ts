@@ -8,8 +8,8 @@ import { autoStudioEnabled, generateStudio, studioConfigured } from "./studio";
  * Enrich a stored item end-to-end. Safe to run in `after()`; never throws.
  * With AUTO_STUDIO=true a studio packshot is generated right after a successful fetch.
  */
-export async function enrichItem(itemId: string): Promise<Item | null> {
-  const item = await getItem(itemId);
+export async function enrichItem(userId: string, itemId: string): Promise<Item | null> {
+  const item = await getItem(userId, itemId);
   if (!item) return null;
   try {
     const result = await enrichUrl(item.url, liveTiers());
@@ -17,7 +17,7 @@ export async function enrichItem(itemId: string): Promise<Item | null> {
     let updated = await applyEnrichment(item, result);
     if (autoStudioEnabled() && studioConfigured() && updated.sourceImageUrl && !updated.studioImageUrl) {
       try {
-        const outcome = await generateStudio(updated.id);
+        const outcome = await generateStudio(userId, updated.id);
         updated = outcome.item;
         if (outcome.message) console.log(`[studio] ${updated.id}: ${outcome.message}`);
       } catch (err) {
@@ -27,6 +27,6 @@ export async function enrichItem(itemId: string): Promise<Item | null> {
     return updated;
   } catch (err) {
     console.error(`[enrich] ${item.id} failed`, err);
-    return await updateItem(itemId, { fetchState: "failed", lastCheckedAt: new Date() });
+    return await updateItem(userId, itemId, { fetchState: "failed", lastCheckedAt: new Date() });
   }
 }

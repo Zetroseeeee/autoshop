@@ -1,9 +1,12 @@
 /**
- * Single-user passcode auth. Runs in both the proxy and route handlers, so it
- * only uses Web Crypto (no Node-only imports).
+ * Multi-user auth.
+ *
+ * Split deliberately by runtime: session verification uses Web Crypto only, so
+ * the proxy can check a cookie on every request. Password hashing uses Node's
+ * scrypt and therefore only ever runs inside route handlers.
  */
-export const AUTH_COOKIE = "basket_auth";
-export const AUTH_MAX_AGE = 90 * 24 * 60 * 60; // 90 days
+export const SESSION_COOKIE = "basket_session";
+export const SESSION_MAX_AGE = 90 * 24 * 60 * 60; // 90 days
 
 const enc = new TextEncoder();
 
@@ -21,49 +24,123 @@ export function safeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-/** HMAC-SHA256 of a fixed message keyed by ACCESS_CODE — the cookie value. */
-export async function authToken(): Promise<string | null> {
-  const code = process.env.ACCESS_CODE;
-  if (!code) return null;
-  const key = await crypto.subtle.importKey(
-    "raw",
-    enc.encode(code),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const sig = await crypto.subtle.sign("HMAC", key, enc.encode("basket_auth:v1"));
-  return hex(sig);
+/**
+ * The signing secret. AUTH_SECRET is the real one; ACCESS_CODE is accepted as a
+ * fallback so an existing single-user deployment keeps working after upgrading.
+ * Missing entirely → sessions cannot be issued or verified (fail closed).
+ */
+function secret(): string | null {
+  return process.env.AUTH_SECRET || process.env.ACCESS_CODE || null;
 }
 
-/** True when the request cookie matches the current ACCESS_CODE. */
-export async function isAuthed(cookieValue: string | undefined | null): Promise<boolean> {
-  if (!cookieValue) return false;
-  const expected = await authToken();
-  if (!expected) return false;
-  return safeEqual(cookieValue, expected);
+async function sign(message: string, key: string): Promise<string> {
+  const k = await crypto.subtle.importKey("raw", enc.encode(key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return hex(await crypto.subtle.sign("HMAC", k, enc.encode(message)));
 }
 
-/** True when a supplied passcode matches ACCESS_CODE (used by /unlock and /api/quick-add). */
-export function codeMatches(code: string | null | undefined): boolean {
-  const expected = process.env.ACCESS_CODE;
-  if (!expected || !code) return false;
-  return safeEqual(code.trim(), expected);
+/** Cookie value: `<userId>.<expiryMs>.<hmac>`. Stateless, so logout-everywhere needs a secret rotation. */
+export async function createSession(userId: string, now = Date.now()): Promise<string | null> {
+  const key = secret();
+  if (!key) return null;
+  const expires = now + SESSION_MAX_AGE * 1000;
+  const body = `${userId}.${expires}`;
+  return `${body}.${await sign(body, key)}`;
 }
 
-export function authCookieOptions() {
+/** Returns the userId when the cookie is authentic and unexpired, else null. */
+export async function readSession(cookieValue: string | undefined | null, now = Date.now()): Promise<string | null> {
+  const key = secret();
+  if (!key || !cookieValue) return null;
+  const parts = cookieValue.split(".");
+  if (parts.length !== 3) return null;
+  const [userId, expiresRaw, mac] = parts as [string, string, string];
+  if (!userId || !/^\d+$/.test(expiresRaw)) return null;
+  const expires = Number(expiresRaw);
+  if (!Number.isFinite(expires) || expires < now) return null;
+  const expected = await sign(`${userId}.${expiresRaw}`, key);
+  return safeEqual(mac, expected) ? userId : null;
+}
+
+export function sessionCookieOptions() {
   return {
     httpOnly: true,
     sameSite: "lax" as const,
     secure: process.env.NODE_ENV === "production",
     path: "/",
-    maxAge: AUTH_MAX_AGE,
+    maxAge: SESSION_MAX_AGE,
   };
 }
 
-/** Only allow same-origin relative paths as post-unlock redirect targets. */
+// ---- passwords (Node runtime only) -------------------------------------------
+
+const SCRYPT_N = 16384;
+const SCRYPT_r = 8;
+const SCRYPT_p = 1;
+const KEY_LEN = 64;
+
+/** `scrypt$N$r$p$saltHex$hashHex` */
+export async function hashPassword(password: string): Promise<string> {
+  const { randomBytes, scrypt } = await import("node:crypto");
+  const salt = randomBytes(16);
+  const derived: Buffer = await new Promise((resolve, reject) =>
+    scrypt(password, salt, KEY_LEN, { N: SCRYPT_N, r: SCRYPT_r, p: SCRYPT_p }, (err, dk) => (err ? reject(err) : resolve(dk))),
+  );
+  return `scrypt$${SCRYPT_N}$${SCRYPT_r}$${SCRYPT_p}$${salt.toString("hex")}$${derived.toString("hex")}`;
+}
+
+/** Constant-time verify. Returns false for any malformed stored value. */
+export async function verifyPassword(password: string, stored: string): Promise<boolean> {
+  const { scrypt, timingSafeEqual } = await import("node:crypto");
+  const parts = stored.split("$");
+  if (parts.length !== 6 || parts[0] !== "scrypt") return false;
+  const [, nRaw, rRaw, pRaw, saltHex, hashHex] = parts as [string, string, string, string, string, string];
+  const N = Number(nRaw);
+  const r = Number(rRaw);
+  const p = Number(pRaw);
+  if (!Number.isInteger(N) || !Number.isInteger(r) || !Number.isInteger(p)) return false;
+  let salt: Buffer;
+  let expected: Buffer;
+  try {
+    salt = Buffer.from(saltHex, "hex");
+    expected = Buffer.from(hashHex, "hex");
+  } catch {
+    return false;
+  }
+  if (salt.length === 0 || expected.length === 0) return false;
+  try {
+    const derived: Buffer = await new Promise((resolve, reject) =>
+      // maxmem must allow the stored cost parameters
+      scrypt(password, salt, expected.length, { N, r, p, maxmem: 256 * 1024 * 1024 }, (err, dk) => (err ? reject(err) : resolve(dk))),
+    );
+    return derived.length === expected.length && timingSafeEqual(derived, expected);
+  } catch {
+    return false;
+  }
+}
+
+// ---- validation ---------------------------------------------------------------
+
+export const MIN_PASSWORD_LENGTH = 8;
+
+export function normaliseEmail(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const email = raw.trim().toLowerCase();
+  if (email.length < 3 || email.length > 254) return null;
+  // deliberately permissive: one @, no spaces, a dot in the domain
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return null;
+  return email;
+}
+
+export function passwordProblem(raw: unknown): string | null {
+  if (typeof raw !== "string" || raw.length === 0) return "Enter a password";
+  if (raw.length < MIN_PASSWORD_LENGTH) return `Password must be at least ${MIN_PASSWORD_LENGTH} characters`;
+  if (raw.length > 200) return "Password is too long";
+  return null;
+}
+
+/** Only allow same-origin relative paths as post-login redirect targets. */
 export function safeNextPath(next: string | null | undefined): string {
   if (!next || !next.startsWith("/") || next.startsWith("//") || next.startsWith("/\\")) return "/";
-  if (next.startsWith("/unlock")) return "/";
+  if (next.startsWith("/login") || next.startsWith("/signup")) return "/";
   return next;
 }

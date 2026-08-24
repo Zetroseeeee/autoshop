@@ -1,5 +1,5 @@
 import { createId } from "@paralleldrive/cuid2";
-import { char, integer, pgEnum, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { char, index, integer, pgEnum, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 
 export const itemStatus = pgEnum("item_status", ["want", "ordered", "arrived"]);
 export const itemCategory = pgEnum("item_category", [
@@ -12,10 +12,34 @@ export const itemCategory = pgEnum("item_category", [
 ]);
 export const fetchState = pgEnum("fetch_state", ["pending", "ok", "partial", "failed"]);
 
+export const users = pgTable("users", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => createId()),
+  /** stored lowercased; the login identifier */
+  email: text("email").notNull().unique(),
+  /** scrypt digest — never a plaintext password */
+  passwordHash: text("password_hash").notNull(),
+  /** per-user secret for the iOS Shortcut / quick-add endpoint; rotatable */
+  quickAddToken: text("quick_add_token")
+    .notNull()
+    .unique()
+    .$defaultFn(() => createId() + createId()),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
 export const items = pgTable("items", {
   id: text("id")
     .primaryKey()
     .$defaultFn(() => createId()),
+  /** owner — every read and write is scoped by this */
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
   url: text("url").notNull(),
   /** hostname without www, e.g. "asos.com" */
   store: text("store").notNull(),
@@ -40,16 +64,29 @@ export const items = pgTable("items", {
     .notNull()
     .defaultNow()
     .$onUpdate(() => new Date()),
-});
+}, (t) => [index("items_user_id_idx").on(t.userId)]);
 
-export const studioUsage = pgTable("studio_usage", {
-  id: text("id")
-    .primaryKey()
-    .$defaultFn(() => createId()),
-  /** calendar month, e.g. "2026-08" */
-  month: text("month").notNull().unique(),
-  count: integer("count").notNull().default(0),
-});
+export const studioUsage = pgTable(
+  "studio_usage",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => createId()),
+    /** the cap is per user, so one account cannot exhaust another's allowance */
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** calendar month, e.g. "2026-08" */
+    month: text("month").notNull(),
+    count: integer("count").notNull().default(0),
+  },
+  (t) => [uniqueIndex("studio_usage_user_month_idx").on(t.userId, t.month)],
+);
+
+export type User = typeof users.$inferSelect;
+export type NewUser = typeof users.$inferInsert;
+/** what is safe to send to the browser — never the password hash */
+export type PublicUser = Pick<User, "id" | "email" | "quickAddToken" | "createdAt">;
 
 export type Item = typeof items.$inferSelect;
 export type NewItem = typeof items.$inferInsert;

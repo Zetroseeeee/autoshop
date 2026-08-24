@@ -1,14 +1,15 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { AUTH_COOKIE, isAuthed } from "@/lib/auth";
+import { readSession, SESSION_COOKIE } from "@/lib/auth";
 
 /**
- * Passcode gate. Everything is protected except /unlock, /api/quick-add (which
- * authenticates with ?code=), the cron route (CRON_SECRET), and PWA assets.
+ * Session gate. Everything is protected except the auth screens, the
+ * token-authenticated quick-add endpoint, the cron route (CRON_SECRET) and
+ * PWA assets. Handlers re-check the session themselves — this is defence in
+ * depth, not the only check.
  */
 export async function proxy(req: NextRequest) {
-  if (await isAuthed(req.cookies.get(AUTH_COOKIE)?.value)) {
-    return NextResponse.next();
-  }
+  const userId = await readSession(req.cookies.get(SESSION_COOKIE)?.value);
+  if (userId) return NextResponse.next();
 
   const { pathname, search } = req.nextUrl;
   if (pathname.startsWith("/api/")) {
@@ -16,7 +17,7 @@ export async function proxy(req: NextRequest) {
   }
 
   const url = req.nextUrl.clone();
-  url.pathname = "/unlock";
+  url.pathname = "/login";
   url.search = "";
   const next = pathname + search;
   if (next !== "/") url.searchParams.set("next", next);
@@ -25,6 +26,6 @@ export async function proxy(req: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!unlock|api/unlock|api/quick-add|api/cron/|manifest\\.webmanifest|sw\\.js|icons/|icon\\.png|apple-icon\\.png|favicon\\.ico|_next/static|_next/image).*)",
+    "/((?!login|signup|api/auth/|api/quick-add|api/cron/|manifest\\.webmanifest|sw\\.js|icons/|icon\\.png|apple-icon\\.png|favicon\\.ico|_next/static|_next/image).*)",
   ],
 };

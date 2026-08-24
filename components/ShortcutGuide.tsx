@@ -1,5 +1,5 @@
 /** iOS Shortcut instructions (spec §9.4). Rendered on /settings and mirrored in the README. */
-export function ShortcutGuide({ appUrl }: { appUrl: string }) {
+export function ShortcutGuide({ appUrl, token }: { appUrl: string; token: string }) {
   const base = appUrl || "https://YOUR-APP.vercel.app";
   return (
     <section className="card mt-3 px-5 py-4">
@@ -22,8 +22,8 @@ export function ShortcutGuide({ appUrl }: { appUrl: string }) {
           Add the action <strong>Get URLs from Input</strong> (search “Get URLs”). Set its input to <strong>Shortcut Input</strong>.
         </li>
         <li>
-          Add the action <strong>Text</strong> and paste this, replacing <code>YOUR-CODE</code> with your passcode:
-          <pre className="mt-1 overflow-x-auto rounded-[12px] bg-tile p-3 font-mono text-[11px] leading-4">{`${base}/api/quick-add?code=YOUR-CODE&url=`}</pre>
+          Add the action <strong>Text</strong> and paste exactly this — it already contains your personal token:
+          <pre className="mt-1 overflow-x-auto rounded-[12px] bg-tile p-3 font-mono text-[11px] leading-4">{`${base}/api/quick-add?token=${token}&url=`}</pre>
           then tap at the end of the text and insert the variable <strong>URLs</strong> (from the previous action) so the link is appended.
         </li>
         <li>
@@ -40,6 +40,9 @@ export function ShortcutGuide({ appUrl }: { appUrl: string }) {
       <p className="mt-3 text-[12px] text-grey">
         Prefer to see the basket straight away? Use <strong>Open URLs</strong> instead of <strong>Get Contents of URL</strong> in step 6 — the app adds the item and
         opens your basket.
+      </p>
+      <p className="mt-2 text-[12px] text-grey">
+        Treat that link like a password — anyone holding it can add items to your basket (it cannot read or delete anything).
       </p>
       <p className="mt-2 text-[12px] text-grey">
         Install the app itself: Safari → Share → <strong>Add to Home Screen</strong>. On Android/desktop Chrome, use the browser&apos;s Install option and the

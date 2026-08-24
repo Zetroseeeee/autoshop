@@ -1,15 +1,18 @@
 import type { NextRequest } from "next/server";
+import { requireUser } from "@/lib/session";
 import { generateStudio, StudioError } from "@/lib/studio";
 import { errorResponse } from "@/lib/validate";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 90;
 
 /** Generate / regenerate the studio packshot. Friendly refusals come back as 200 + message. */
 export async function POST(_req: NextRequest, ctx: RouteContext<"/api/items/[id]">) {
+  const auth = await requireUser();
+  if ("response" in auth) return auth.response;
   try {
     const { id } = await ctx.params;
-    const outcome = await generateStudio(id);
+    const outcome = await generateStudio(auth.user.id, id);
     return Response.json(outcome);
   } catch (err) {
     if (err instanceof StudioError) return Response.json({ error: err.message }, { status: err.message === "Item not found" ? 404 : 502 });

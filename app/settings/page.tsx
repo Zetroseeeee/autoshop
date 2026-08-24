@@ -5,7 +5,9 @@ import { LockButton } from "@/components/LockButton";
 import { ShortcutGuide } from "@/components/ShortcutGuide";
 import { ToastProvider } from "@/components/Toast";
 import { CheckIcon } from "@/components/icons";
+import { redirect } from "next/navigation";
 import { resolveAppUrl } from "@/lib/appUrl";
+import { currentUser } from "@/lib/session";
 import { autoStudioEnabled, backViewEnabled, studioCap, studioUsageThisMonth } from "@/lib/studio";
 
 export const dynamic = "force-dynamic";
@@ -14,18 +16,20 @@ const ENV_KEYS = [
   ["DATABASE_URL", "Neon Postgres"],
   ["BLOB_READ_WRITE_TOKEN", "Vercel Blob (studio photos)"],
   ["GEMINI_API_KEY", "Gemini (studio photos + brand/category fallback)"],
-  ["ACCESS_CODE", "Passcode"],
+  ["AUTH_SECRET", "Signs session cookies"],
   ["SCRAPER_API_KEY", "Scraping API for bot-walled stores (optional)"],
   ["APP_URL", "Public URL (optional — falls back to this page's own origin)"],
   ["CRON_SECRET", "Daily price check (optional)"],
 ] as const;
 
 export default async function SettingsPage() {
+  const user = await currentUser();
+  if (!user) redirect("/login");
   const present = Object.fromEntries(ENV_KEYS.map(([k]) => [k, Boolean(process.env[k])])) as Record<(typeof ENV_KEYS)[number][0], boolean>;
   let used = 0;
   let usageError = false;
   try {
-    used = await studioUsageThisMonth();
+    used = await studioUsageThisMonth(user.id);
   } catch {
     usageError = true;
   }
@@ -79,11 +83,12 @@ export default async function SettingsPage() {
 
         <ImportExport />
 
-        <ShortcutGuide appUrl={appUrl} />
+        <ShortcutGuide appUrl={appUrl} token={user.quickAddToken} />
 
         <section className="card mt-3 px-5 py-4">
-          <h2 className="text-[13px] font-semibold text-grey">This device</h2>
-          <p className="mt-1 text-[13px] text-grey">Locking clears the 90-day passcode cookie on this browser only.</p>
+          <h2 className="text-[13px] font-semibold text-grey">Account</h2>
+          <p className="mt-1 text-[15px] font-semibold">{user.email}</p>
+          <p className="mt-1 text-[13px] text-grey">Your basket is private to this account. Signing out clears the session on this browser only.</p>
           <div className="mt-3">
             <LockButton />
           </div>
